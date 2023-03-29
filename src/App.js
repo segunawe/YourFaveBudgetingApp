@@ -6,7 +6,7 @@ function App() {
     <div className="App">
       <header>
         <h1>Financial Budgeting App</h1>
-        <Header />
+        <Header/>
         {/* Add any additional header components here */}
       </header>
       <main>
