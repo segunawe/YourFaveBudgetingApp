@@ -1,12 +1,15 @@
-import React from 'react';
-import { Container, Box, Typography, Paper, Button } from '@mui/material';
+import React, { useState } from 'react';
+import { Container, Box, Typography, Paper, Button, Grid } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../Header';
+import PlaidLinkButton from '../plaid/PlaidLinkButton';
+import AccountsList from '../plaid/AccountsList';
 
 const Dashboard = () => {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const handleLogout = async () => {
     try {
@@ -15,6 +18,12 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Failed to log out:', error);
     }
+  };
+
+  const handlePlaidSuccess = (accounts) => {
+    console.log('Successfully connected accounts:', accounts);
+    // Trigger refresh of AccountsList
+    setRefreshTrigger(prev => prev + 1);
   };
 
   return (
@@ -34,31 +43,45 @@ const Dashboard = () => {
             </Button>
           </Paper>
 
-          <Paper elevation={3} sx={{ p: 4, mb: 3 }}>
-            <Typography variant="h5" gutterBottom>
-              Quick Actions
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
-              <Button variant="outlined">Connect Bank Account</Button>
-              <Button variant="outlined">Create Bucket</Button>
-              <Button variant="outlined">Create Group</Button>
-            </Box>
-          </Paper>
+          <Grid container spacing={3}>
+            {/* Left Column - Actions */}
+            <Grid item xs={12} md={4}>
+              <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+                <Typography variant="h6" gutterBottom>
+                  Quick Actions
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                  <PlaidLinkButton onSuccess={handlePlaidSuccess} />
+                  <Button variant="outlined" disabled>
+                    Create Bucket
+                  </Button>
+                  <Button variant="outlined" disabled>
+                    Create Group
+                  </Button>
+                </Box>
+              </Paper>
 
-          <Paper elevation={3} sx={{ p: 4 }}>
-            <Typography variant="h5" gutterBottom>
-              Getting Started
-            </Typography>
-            <Typography variant="body1" paragraph>
-              1. Connect your bank account using Plaid
-            </Typography>
-            <Typography variant="body1" paragraph>
-              2. Create savings buckets for your personal goals
-            </Typography>
-            <Typography variant="body1" paragraph>
-              3. Invite friends to create group savings goals
-            </Typography>
-          </Paper>
+              <Paper elevation={3} sx={{ p: 3 }}>
+                <Typography variant="h6" gutterBottom>
+                  Getting Started
+                </Typography>
+                <Typography variant="body2" paragraph>
+                  1. Connect your bank account using Plaid
+                </Typography>
+                <Typography variant="body2" paragraph>
+                  2. Create savings buckets for your personal goals
+                </Typography>
+                <Typography variant="body2" paragraph>
+                  3. Invite friends to create group savings goals
+                </Typography>
+              </Paper>
+            </Grid>
+
+            {/* Right Column - Accounts */}
+            <Grid item xs={12} md={8}>
+              <AccountsList refreshTrigger={refreshTrigger} />
+            </Grid>
+          </Grid>
         </Box>
       </Container>
     </>

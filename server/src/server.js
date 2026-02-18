@@ -35,11 +35,14 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'Server is running' });
 });
 
-// API Routes (to be added)
-// app.use('/api/plaid', require('./routes/plaid.routes'));
-// app.use('/api/buckets', require('./routes/buckets.routes'));
-// app.use('/api/groups', require('./routes/groups.routes'));
-// app.use('/api/transactions', require('./routes/transactions.routes'));
+// Auth middleware
+const authMiddleware = require('./middleware/auth');
+
+// API Routes
+app.use('/api/plaid', authMiddleware, require('./routes/plaid.routes'));
+// app.use('/api/buckets', authMiddleware, require('./routes/buckets.routes'));
+// app.use('/api/groups', authMiddleware, require('./routes/groups.routes'));
+// app.use('/api/transactions', authMiddleware, require('./routes/transactions.routes'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

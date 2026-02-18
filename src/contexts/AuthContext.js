@@ -112,9 +112,11 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // User is signed in
+        // User is signed in - keep the Firebase user object intact
         const userData = await getUserData(user.uid);
-        setCurrentUser({ ...user, ...userData });
+        // Attach Firestore data as a property instead of spreading
+        user.firestoreData = userData;
+        setCurrentUser(user);
       } else {
         // User is signed out
         setCurrentUser(null);
