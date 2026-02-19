@@ -5,11 +5,15 @@ import { useNavigate } from 'react-router-dom';
 import Header from '../../Header';
 import PlaidLinkButton from '../plaid/PlaidLinkButton';
 import AccountsList from '../plaid/AccountsList';
+import CreateBucket from '../buckets/CreateBucket';
+import BucketsList from '../buckets/BucketsList';
 
 const Dashboard = () => {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [bucketsRefreshTrigger, setBucketsRefreshTrigger] = useState(0);
+  const [createBucketOpen, setCreateBucketOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -24,6 +28,12 @@ const Dashboard = () => {
     console.log('Successfully connected accounts:', accounts);
     // Trigger refresh of AccountsList
     setRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleBucketCreated = (bucket) => {
+    console.log('Successfully created bucket:', bucket);
+    // Trigger refresh of BucketsList
+    setBucketsRefreshTrigger(prev => prev + 1);
   };
 
   return (
@@ -52,7 +62,10 @@ const Dashboard = () => {
                 </Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
                   <PlaidLinkButton onSuccess={handlePlaidSuccess} />
-                  <Button variant="outlined" disabled>
+                  <Button
+                    variant="outlined"
+                    onClick={() => setCreateBucketOpen(true)}
+                  >
                     Create Bucket
                   </Button>
                   <Button variant="outlined" disabled>
@@ -82,7 +95,19 @@ const Dashboard = () => {
               <AccountsList refreshTrigger={refreshTrigger} />
             </Grid>
           </Grid>
+
+          {/* Buckets Section */}
+          <Box sx={{ mt: 4 }}>
+            <BucketsList refreshTrigger={bucketsRefreshTrigger} />
+          </Box>
         </Box>
+
+        {/* Create Bucket Dialog */}
+        <CreateBucket
+          open={createBucketOpen}
+          onClose={() => setCreateBucketOpen(false)}
+          onSuccess={handleBucketCreated}
+        />
       </Container>
     </>
   );

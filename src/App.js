@@ -5,6 +5,7 @@ import Login from './components/auth/Login';
 import Signup from './components/auth/Signup';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Dashboard from './components/dashboard/Dashboard';
+import BucketDetail from './components/buckets/BucketDetail';
 import './App.css';
 
 function App() {
@@ -22,6 +23,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/buckets/:id"
+            element={
+              <ProtectedRoute>
+                <BucketDetail />
               </ProtectedRoute>
             }
           />
