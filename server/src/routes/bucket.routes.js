@@ -3,24 +3,39 @@ const router = express.Router();
 const { db } = require('../config/firebase');
 const admin = require('firebase-admin');
 
+// Helper: check if a user is a member of a bucket
+const isMember = (bucket, uid) => {
+  if (bucket.userId === uid) return true;
+  if (bucket.members && bucket.members.some(m => m.uid === uid)) return true;
+  return false;
+};
+
 // GET /api/buckets
-// Get all buckets for the authenticated user
+// Get all buckets the user owns or is a member of
 router.get('/', async (req, res) => {
   try {
     const userId = req.user.uid;
 
-    const bucketsSnapshot = await db
+    // Query buckets owned by the user
+    const ownedSnapshot = db.collection('buckets').where('userId', '==', userId).get();
+
+    // Query shared buckets where user is a member but not the owner
+    const sharedSnapshot = db
       .collection('buckets')
-      .where('userId', '==', userId)
+      .where('memberUids', 'array-contains', userId)
       .get();
 
-    const buckets = [];
-    bucketsSnapshot.forEach(doc => {
-      buckets.push({
-        id: doc.id,
-        ...doc.data(),
-      });
+    const [ownedResult, sharedResult] = await Promise.all([ownedSnapshot, sharedSnapshot]);
+
+    const bucketMap = new Map();
+    ownedResult.forEach(doc => bucketMap.set(doc.id, { id: doc.id, ...doc.data() }));
+    sharedResult.forEach(doc => {
+      if (!bucketMap.has(doc.id)) {
+        bucketMap.set(doc.id, { id: doc.id, ...doc.data() });
+      }
     });
+
+    const buckets = Array.from(bucketMap.values());
 
     buckets.sort((a, b) => {
       const aTime = a.createdAt?.toDate?.() ?? new Date(a.createdAt ?? 0);
@@ -53,15 +68,11 @@ router.get('/:id', async (req, res) => {
 
     const bucket = bucketDoc.data();
 
-    // Verify ownership
-    if (bucket.userId !== userId) {
+    if (!isMember(bucket, userId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    res.json({
-      id: bucketDoc.id,
-      ...bucket,
-    });
+    res.json({ id: bucketDoc.id, ...bucket });
   } catch (error) {
     console.error('Error fetching bucket:', error);
     res.status(500).json({
@@ -72,26 +83,67 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/buckets
-// Create a new bucket
+// Create a new bucket (optionally shared with friends)
 router.post('/', async (req, res) => {
   try {
     const userId = req.user.uid;
-    const { name, goalAmount, targetDate, description } = req.body;
+    const { name, goalAmount, targetDate, description, memberUids } = req.body;
 
-    // Validation
     if (!name || !goalAmount) {
-      return res.status(400).json({
-        error: 'Name and goal amount are required'
-      });
+      return res.status(400).json({ error: 'Name and goal amount are required' });
     }
 
     if (goalAmount <= 0) {
-      return res.status(400).json({
-        error: 'Goal amount must be greater than 0'
-      });
+      return res.status(400).json({ error: 'Goal amount must be greater than 0' });
     }
 
-    // Create bucket document
+    // Fetch creator profile for member entry
+    const creatorDoc = await db.collection('users').doc(userId).get();
+    const creatorData = creatorDoc.data();
+
+    const ownerMember = {
+      uid: userId,
+      email: creatorData.email,
+      displayName: creatorData.displayName || creatorData.email,
+      role: 'owner',
+    };
+
+    let members = [ownerMember];
+    let isShared = false;
+    let allMemberUids = [userId];
+
+    if (memberUids && memberUids.length > 0) {
+      // Verify all invited users are actually friends of the creator
+      const friendUids = creatorData.friends || [];
+      const invalidUids = memberUids.filter(uid => !friendUids.includes(uid));
+      if (invalidUids.length > 0) {
+        return res.status(400).json({ error: 'You can only share buckets with friends' });
+      }
+
+      // Fetch invited users' profiles
+      const inviteProfiles = [];
+      for (let i = 0; i < memberUids.length; i += 10) {
+        const batch = memberUids.slice(i, i + 10);
+        const snapshot = await db
+          .collection('users')
+          .where(admin.firestore.FieldPath.documentId(), 'in', batch)
+          .get();
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          inviteProfiles.push({
+            uid: doc.id,
+            email: data.email,
+            displayName: data.displayName || data.email,
+            role: 'member',
+          });
+        });
+      }
+
+      members = [ownerMember, ...inviteProfiles];
+      isShared = true;
+      allMemberUids = [userId, ...memberUids];
+    }
+
     const bucketData = {
       userId,
       name,
@@ -101,6 +153,9 @@ router.post('/', async (req, res) => {
       currentAmount: 0,
       status: 'active',
       contributions: [],
+      isShared,
+      members,
+      memberUids: allMemberUids,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
@@ -123,7 +178,7 @@ router.post('/', async (req, res) => {
 });
 
 // POST /api/buckets/:id/allocate
-// Allocate funds to a bucket
+// Allocate funds to a bucket (any member can contribute)
 router.post('/:id/allocate', async (req, res) => {
   try {
     const userId = req.user.uid;
@@ -131,9 +186,7 @@ router.post('/:id/allocate', async (req, res) => {
     const { amount } = req.body;
 
     if (!amount || amount <= 0) {
-      return res.status(400).json({
-        error: 'Amount must be greater than 0'
-      });
+      return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
 
     const bucketRef = db.collection('buckets').doc(id);
@@ -145,19 +198,15 @@ router.post('/:id/allocate', async (req, res) => {
 
     const bucket = bucketDoc.data();
 
-    // Verify ownership
-    if (bucket.userId !== userId) {
+    if (!isMember(bucket, userId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Check if bucket is already completed
     if (bucket.status === 'completed') {
-      return res.status(400).json({
-        error: 'Cannot allocate to a completed bucket'
-      });
+      return res.status(400).json({ error: 'Cannot allocate to a completed bucket' });
     }
 
-    // Get user's total available balance from Plaid accounts
+    // Get contributing user's bank balance
     const userDoc = await db.collection('users').doc(userId).get();
     const userData = userDoc.data();
 
@@ -172,21 +221,39 @@ router.post('/:id/allocate', async (req, res) => {
       });
     }
 
-    // Calculate already allocated amount
-    const allBucketsSnapshot = await db
+    // Calculate how much this user has already allocated across their buckets
+    const userBucketsSnapshot = await db
+      .collection('buckets')
+      .where('memberUids', 'array-contains', userId)
+      .where('status', '==', 'active')
+      .get();
+
+    // Also check buckets the user owns (for pre-sharing buckets without memberUids)
+    const ownedBucketsSnapshot = await db
       .collection('buckets')
       .where('userId', '==', userId)
       .where('status', '==', 'active')
       .get();
 
+    const seenIds = new Set();
     let totalAllocated = 0;
-    allBucketsSnapshot.forEach(doc => {
-      totalAllocated += doc.data().currentAmount || 0;
-    });
+
+    const countAllocation = (doc) => {
+      if (seenIds.has(doc.id)) return;
+      seenIds.add(doc.id);
+      const data = doc.data();
+      // Sum contributions from this user only
+      const userContributions = (data.contributions || [])
+        .filter(c => c.uid === userId || (!c.uid && data.userId === userId))
+        .reduce((sum, c) => sum + (c.amount || 0), 0);
+      totalAllocated += userContributions;
+    };
+
+    userBucketsSnapshot.forEach(countAllocation);
+    ownedBucketsSnapshot.forEach(countAllocation);
 
     const availableBalance = totalBankBalance - totalAllocated;
 
-    // Check if user has enough available balance
     if (amount > availableBalance) {
       return res.status(400).json({
         error: 'Insufficient available balance',
@@ -195,13 +262,12 @@ router.post('/:id/allocate', async (req, res) => {
       });
     }
 
-    // Create contribution record
     const contribution = {
       amount: parseFloat(amount),
-      date: admin.firestore.FieldValue.serverTimestamp(),
+      date: admin.firestore.Timestamp.now(),
+      uid: userId,
     };
 
-    // Update bucket
     const newCurrentAmount = bucket.currentAmount + parseFloat(amount);
     const newStatus = newCurrentAmount >= bucket.goalAmount ? 'completed' : 'active';
 
@@ -229,7 +295,7 @@ router.post('/:id/allocate', async (req, res) => {
 });
 
 // POST /api/buckets/:id/collect
-// Collect funds from a completed bucket
+// Collect funds from a completed bucket (owner only)
 router.post('/:id/collect', async (req, res) => {
   try {
     const userId = req.user.uid;
@@ -244,12 +310,10 @@ router.post('/:id/collect', async (req, res) => {
 
     const bucket = bucketDoc.data();
 
-    // Verify ownership
     if (bucket.userId !== userId) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Only the bucket owner can collect funds' });
     }
 
-    // Check if bucket is completed
     if (bucket.status !== 'completed') {
       return res.status(400).json({
         error: 'Bucket must be completed before collecting',
@@ -258,7 +322,6 @@ router.post('/:id/collect', async (req, res) => {
       });
     }
 
-    // Mark bucket as collected (archived)
     await bucketRef.update({
       status: 'collected',
       collectedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -280,7 +343,7 @@ router.post('/:id/collect', async (req, res) => {
 });
 
 // DELETE /api/buckets/:id
-// Delete a bucket
+// Delete a bucket (owner only)
 router.delete('/:id', async (req, res) => {
   try {
     const userId = req.user.uid;
@@ -295,18 +358,16 @@ router.delete('/:id', async (req, res) => {
 
     const bucket = bucketDoc.data();
 
-    // Verify ownership
     if (bucket.userId !== userId) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Only the bucket owner can delete it' });
     }
 
-    // Delete the bucket
     await bucketRef.delete();
 
     res.json({
       success: true,
       message: 'Bucket deleted successfully',
-      freedAmount: bucket.currentAmount, // Amount that was freed up
+      freedAmount: bucket.currentAmount,
     });
   } catch (error) {
     console.error('Error deleting bucket:', error);

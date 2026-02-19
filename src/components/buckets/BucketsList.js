@@ -14,6 +14,7 @@ import SavingsIcon from '@mui/icons-material/Savings';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import GroupIcon from '@mui/icons-material/Group';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -230,9 +231,20 @@ const BucketsList = ({ refreshTrigger }) => {
               <CardContent>
                 <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
                   <Box>
-                    <Typography variant="h6" gutterBottom>
-                      {bucket.name}
-                    </Typography>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Typography variant="h6">
+                        {bucket.name}
+                      </Typography>
+                      {bucket.isShared && (
+                        <Chip
+                          icon={<GroupIcon />}
+                          label={`${bucket.members?.length || 2} members`}
+                          size="small"
+                          variant="outlined"
+                          color="secondary"
+                        />
+                      )}
+                    </Box>
                     {bucket.description && (
                       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                         {bucket.description}

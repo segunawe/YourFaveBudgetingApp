@@ -24,6 +24,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteIcon from '@mui/icons-material/Delete';
+import GroupIcon from '@mui/icons-material/Group';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import Header from '../../Header';
@@ -350,6 +351,35 @@ const BucketDetail = () => {
           </Paper>
         )}
 
+        {/* Members Section (shared buckets only) */}
+        {bucket.isShared && bucket.members && (
+          <Paper elevation={3} sx={{ p: 4, mb: 3 }}>
+            <Box display="flex" alignItems="center" gap={1} mb={1}>
+              <GroupIcon color="action" />
+              <Typography variant="h6">Members</Typography>
+            </Box>
+            <Divider sx={{ mb: 2 }} />
+            <List disablePadding>
+              {bucket.members.map((member) => {
+                const memberTotal = (bucket.contributions || [])
+                  .filter(c => c.uid === member.uid)
+                  .reduce((sum, c) => sum + (c.amount || 0), 0);
+                return (
+                  <ListItem key={member.uid} disableGutters divider>
+                    <ListItemText
+                      primary={`${member.displayName}${member.role === 'owner' ? ' (owner)' : ''}`}
+                      secondary={member.email}
+                    />
+                    <Typography variant="body2" color="text.secondary">
+                      {formatCurrency(memberTotal)} contributed
+                    </Typography>
+                  </ListItem>
+                );
+              })}
+            </List>
+          </Paper>
+        )}
+
         {/* Contribution History */}
         <Paper elevation={3} sx={{ p: 4, mb: 3 }}>
           <Typography variant="h6" gutterBottom>
@@ -358,20 +388,35 @@ const BucketDetail = () => {
           <Divider sx={{ mb: 2 }} />
           {bucket.contributions && bucket.contributions.length > 0 ? (
             <List>
-              {bucket.contributions.map((contribution, index) => (
-                <ListItem key={index} divider>
-                  <ListItemText
-                    primary={formatCurrency(contribution.amount)}
-                    secondary={new Date(contribution.date).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  />
-                </ListItem>
-              ))}
+              {bucket.contributions.map((contribution, index) => {
+                const contributor = bucket.isShared
+                  ? bucket.members?.find(m => m.uid === contribution.uid)
+                  : null;
+                const dateVal = contribution.date?.toDate
+                  ? contribution.date.toDate()
+                  : new Date(contribution.date);
+                return (
+                  <ListItem key={index} divider>
+                    <ListItemText
+                      primary={formatCurrency(contribution.amount)}
+                      secondary={
+                        <>
+                          {contributor && (
+                            <span style={{ marginRight: 8 }}>{contributor.displayName} &middot;</span>
+                          )}
+                          {dateVal.toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </>
+                      }
+                    />
+                  </ListItem>
+                );
+              })}
             </List>
           ) : (
             <Typography variant="body2" color="text.secondary">

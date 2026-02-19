@@ -7,6 +7,7 @@ import PlaidLinkButton from '../plaid/PlaidLinkButton';
 import AccountsList from '../plaid/AccountsList';
 import CreateBucket from '../buckets/CreateBucket';
 import BucketsList from '../buckets/BucketsList';
+import FriendsManager from '../friends/FriendsManager';
 
 const Dashboard = () => {
   const { currentUser, logout } = useAuth();
@@ -14,6 +15,7 @@ const Dashboard = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [bucketsRefreshTrigger, setBucketsRefreshTrigger] = useState(0);
   const [createBucketOpen, setCreateBucketOpen] = useState(false);
+  const [friendsOpen, setFriendsOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -68,8 +70,11 @@ const Dashboard = () => {
                   >
                     Create Bucket
                   </Button>
-                  <Button variant="outlined" disabled>
-                    Create Group
+                  <Button
+                    variant="outlined"
+                    onClick={() => setFriendsOpen(true)}
+                  >
+                    Friends
                   </Button>
                 </Box>
               </Paper>
@@ -107,6 +112,12 @@ const Dashboard = () => {
           open={createBucketOpen}
           onClose={() => setCreateBucketOpen(false)}
           onSuccess={handleBucketCreated}
+        />
+
+        {/* Friends Manager Dialog */}
+        <FriendsManager
+          open={friendsOpen}
+          onClose={() => setFriendsOpen(false)}
         />
       </Container>
     </>

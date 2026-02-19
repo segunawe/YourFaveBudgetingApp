@@ -41,6 +41,7 @@ const authMiddleware = require('./middleware/auth');
 // API Routes
 app.use('/api/plaid', authMiddleware, require('./routes/plaid.routes'));
 app.use('/api/buckets', authMiddleware, require('./routes/bucket.routes'));
+app.use('/api/friends', authMiddleware, require('./routes/friends.routes'));
 // app.use('/api/groups', authMiddleware, require('./routes/groups.routes'));
 // app.use('/api/transactions', authMiddleware, require('./routes/transactions.routes'));
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -10,6 +10,13 @@ import {
   Alert,
   CircularProgress,
   InputAdornment,
+  Typography,
+  Checkbox,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Divider,
 } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -24,18 +31,41 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
   const [error, setError] = useState(null);
   const { currentUser } = useAuth();
 
+  const [friends, setFriends] = useState([]);
+  const [selectedFriendUids, setSelectedFriendUids] = useState([]);
+
+  // Fetch friends when dialog opens
+  useEffect(() => {
+    if (!open) return;
+    const fetchFriends = async () => {
+      try {
+        const token = await currentUser.getIdToken();
+        const res = await fetch(`${process.env.REACT_APP_API_URL}/friends`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (res.ok) setFriends(data.friends || []);
+      } catch (err) {
+        console.error('Failed to load friends:', err);
+      }
+    };
+    fetchFriends();
+  }, [open, currentUser]);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const toggleFriend = (uid) => {
+    setSelectedFriendUids(prev =>
+      prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
+    );
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Validation
     if (!formData.name.trim()) {
       setError('Bucket name is required');
       return;
@@ -55,13 +85,14 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: formData.name.trim(),
           goalAmount: parseFloat(formData.goalAmount),
           targetDate: formData.targetDate || null,
           description: formData.description.trim(),
+          memberUids: selectedFriendUids,
         }),
       });
 
@@ -71,20 +102,10 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
         throw new Error(data.error || 'Failed to create bucket');
       }
 
-      // Reset form
-      setFormData({
-        name: '',
-        goalAmount: '',
-        targetDate: '',
-        description: '',
-      });
+      setFormData({ name: '', goalAmount: '', targetDate: '', description: '' });
+      setSelectedFriendUids([]);
 
-      // Call success callback
-      if (onSuccess) {
-        onSuccess(data);
-      }
-
-      // Close dialog
+      if (onSuccess) onSuccess(data);
       onClose();
     } catch (err) {
       console.error('Error creating bucket:', err);
@@ -96,18 +117,13 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
 
   const handleClose = () => {
     if (!loading) {
-      setFormData({
-        name: '',
-        goalAmount: '',
-        targetDate: '',
-        description: '',
-      });
+      setFormData({ name: '', goalAmount: '', targetDate: '', description: '' });
+      setSelectedFriendUids([]);
       setError(null);
       onClose();
     }
   };
 
-  // Get tomorrow's date as minimum target date
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const minDate = tomorrow.toISOString().split('T')[0];
@@ -160,12 +176,8 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
               value={formData.targetDate}
               onChange={handleChange}
               fullWidth
-              InputLabelProps={{
-                shrink: true,
-              }}
-              inputProps={{
-                min: minDate,
-              }}
+              InputLabelProps={{ shrink: true }}
+              inputProps={{ min: minDate }}
               helperText="When do you want to reach this goal?"
               disabled={loading}
             />
@@ -181,6 +193,41 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
               placeholder="Add notes about this savings goal..."
               disabled={loading}
             />
+
+            {/* Friend selection — only shown if the user has friends */}
+            {friends.length > 0 && (
+              <>
+                <Divider />
+                <Typography variant="subtitle2" color="text.secondary">
+                  Share with friends (optional)
+                </Typography>
+                <List disablePadding dense>
+                  {friends.map(friend => (
+                    <ListItem
+                      key={friend.uid}
+                      disableGutters
+                      button
+                      onClick={() => toggleFriend(friend.uid)}
+                      disabled={loading}
+                    >
+                      <ListItemIcon sx={{ minWidth: 36 }}>
+                        <Checkbox
+                          edge="start"
+                          checked={selectedFriendUids.includes(friend.uid)}
+                          tabIndex={-1}
+                          disableRipple
+                          size="small"
+                        />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={friend.displayName}
+                        secondary={friend.email}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </>
+            )}
           </Box>
         </DialogContent>
 
