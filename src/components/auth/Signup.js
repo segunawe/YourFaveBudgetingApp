@@ -9,6 +9,8 @@ import {
   Paper,
   Alert,
   CircularProgress,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -21,6 +23,7 @@ const Signup = () => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const { signup } = useAuth();
   const navigate = useNavigate();
@@ -48,6 +51,11 @@ const Signup = () => {
 
     if (formData.password.length < 6) {
       setError('Password must be at least 6 characters');
+      return;
+    }
+
+    if (!agreedToTerms) {
+      setError('You must agree to the Terms of Service to create an account');
       return;
     }
 
@@ -140,12 +148,30 @@ const Signup = () => {
               onChange={handleChange}
               disabled={loading}
             />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={agreedToTerms}
+                  onChange={(e) => setAgreedToTerms(e.target.checked)}
+                  disabled={loading}
+                />
+              }
+              label={
+                <Typography variant="body2">
+                  I have read and agree to the{' '}
+                  <Link to="/terms" target="_blank" style={{ textDecoration: 'none' }}>
+                    Terms of Service
+                  </Link>
+                </Typography>
+              }
+              sx={{ mt: 1, alignItems: 'flex-start' }}
+            />
             <Button
               type="submit"
               fullWidth
               variant="contained"
-              sx={{ mt: 3, mb: 2 }}
-              disabled={loading}
+              sx={{ mt: 2, mb: 2 }}
+              disabled={loading || !agreedToTerms}
             >
               {loading ? <CircularProgress size={24} /> : 'Sign Up'}
             </Button>

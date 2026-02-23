@@ -5,6 +5,7 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  deleteUser,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
@@ -46,6 +47,9 @@ export const AuthProvider = ({ children }) => {
         createdAt: new Date(),
         connectedAccounts: [],
         totalBalance: 0,
+        termsAcceptedAt: new Date(),
+        transactionLimit: null,
+        notificationPrefs: { email: true, inApp: true },
       });
 
       return user;
@@ -88,6 +92,22 @@ export const AuthProvider = ({ children }) => {
         // Update Firestore document
         await setDoc(doc(db, 'users', currentUser.uid), updates, { merge: true });
       }
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  // Delete account — cleans up Firestore via backend then deletes Firebase Auth user
+  const deleteAccount = async () => {
+    try {
+      setError(null);
+      const token = await currentUser.getIdToken();
+      await fetch(`${process.env.REACT_APP_API_URL}/users/account`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await deleteUser(auth.currentUser);
     } catch (err) {
       setError(err.message);
       throw err;
@@ -137,6 +157,7 @@ export const AuthProvider = ({ children }) => {
     logout,
     updateUserProfile,
     getUserData,
+    deleteAccount,
   };
 
   return (

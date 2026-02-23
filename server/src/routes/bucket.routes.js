@@ -156,6 +156,7 @@ router.post('/', async (req, res) => {
       isShared,
       members,
       memberUids: allMemberUids,
+      collectorUid: userId,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
@@ -206,9 +207,17 @@ router.post('/:id/allocate', async (req, res) => {
       return res.status(400).json({ error: 'Cannot allocate to a completed bucket' });
     }
 
-    // Get contributing user's bank balance
+    // Get contributing user's bank balance and settings
     const userDoc = await db.collection('users').doc(userId).get();
     const userData = userDoc.data();
+
+    // Enforce transaction limit if set
+    if (userData.transactionLimit && parseFloat(amount) > userData.transactionLimit) {
+      return res.status(400).json({
+        error: `Amount exceeds your transaction limit of $${userData.transactionLimit.toFixed(2)}`,
+        transactionLimit: userData.transactionLimit,
+      });
+    }
 
     let totalBankBalance = 0;
     if (userData.plaidItems) {
@@ -310,8 +319,9 @@ router.post('/:id/collect', async (req, res) => {
 
     const bucket = bucketDoc.data();
 
-    if (bucket.userId !== userId) {
-      return res.status(403).json({ error: 'Only the bucket owner can collect funds' });
+    const collectorUid = bucket.collectorUid || bucket.userId;
+    if (collectorUid !== userId) {
+      return res.status(403).json({ error: 'Only the designated collector can collect funds' });
     }
 
     if (bucket.status !== 'completed') {
@@ -339,6 +349,112 @@ router.post('/:id/collect', async (req, res) => {
       error: 'Failed to collect funds',
       details: error.message
     });
+  }
+});
+
+// POST /api/buckets/:id/invite
+// Invite a friend to an existing bucket (owner only)
+router.post('/:id/invite', async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { id } = req.params;
+    const { friendUid } = req.body;
+
+    if (!friendUid) {
+      return res.status(400).json({ error: 'friendUid is required' });
+    }
+
+    const bucketDoc = await db.collection('buckets').doc(id).get();
+    if (!bucketDoc.exists) {
+      return res.status(404).json({ error: 'Bucket not found' });
+    }
+
+    const bucket = bucketDoc.data();
+
+    if (bucket.userId !== userId) {
+      return res.status(403).json({ error: 'Only the bucket owner can invite members' });
+    }
+
+    // Verify friendUid is in owner's friends list
+    const ownerDoc = await db.collection('users').doc(userId).get();
+    const ownerData = ownerDoc.data();
+    if (!(ownerData.friends || []).includes(friendUid)) {
+      return res.status(400).json({ error: 'You can only invite friends' });
+    }
+
+    // Check not already a member
+    if ((bucket.memberUids || []).includes(friendUid)) {
+      return res.status(400).json({ error: 'User is already a member of this bucket' });
+    }
+
+    // Check no pending invite already exists
+    const existing = await db
+      .collection('bucketInvites')
+      .where('bucketId', '==', id)
+      .where('toUid', '==', friendUid)
+      .where('status', '==', 'pending')
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      return res.status(400).json({ error: 'Invite already sent to this user' });
+    }
+
+    await db.collection('bucketInvites').add({
+      bucketId: id,
+      bucketName: bucket.name,
+      fromUid: userId,
+      fromDisplayName: ownerData.displayName || ownerData.email,
+      toUid: friendUid,
+      status: 'pending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.status(201).json({ success: true, message: 'Invite sent' });
+  } catch (error) {
+    console.error('Error inviting to bucket:', error);
+    res.status(500).json({ error: 'Failed to send invite', details: error.message });
+  }
+});
+
+// PATCH /api/buckets/:id/collector
+// Change the designated collector (owner only)
+router.patch('/:id/collector', async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { id } = req.params;
+    const { collectorUid } = req.body;
+
+    if (!collectorUid) {
+      return res.status(400).json({ error: 'collectorUid is required' });
+    }
+
+    const bucketRef = db.collection('buckets').doc(id);
+    const bucketDoc = await bucketRef.get();
+
+    if (!bucketDoc.exists) {
+      return res.status(404).json({ error: 'Bucket not found' });
+    }
+
+    const bucket = bucketDoc.data();
+
+    if (bucket.userId !== userId) {
+      return res.status(403).json({ error: 'Only the bucket owner can change the collector' });
+    }
+
+    if (!(bucket.memberUids || []).includes(collectorUid)) {
+      return res.status(400).json({ error: 'Collector must be a current member of the bucket' });
+    }
+
+    await bucketRef.update({
+      collectorUid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.json({ success: true, message: 'Collector updated' });
+  } catch (error) {
+    console.error('Error updating collector:', error);
+    res.status(500).json({ error: 'Failed to update collector', details: error.message });
   }
 });
 

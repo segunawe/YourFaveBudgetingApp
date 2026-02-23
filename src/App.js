@@ -6,6 +6,9 @@ import Signup from './components/auth/Signup';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Dashboard from './components/dashboard/Dashboard';
 import BucketDetail from './components/buckets/BucketDetail';
+import AccountSettings from './components/settings/AccountSettings';
+import HelpPage from './components/help/HelpPage';
+import TermsOfService from './components/legal/TermsOfService';
 import './App.css';
 
 function App() {
@@ -16,6 +19,7 @@ function App() {
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/terms" element={<TermsOfService />} />
 
           {/* Protected routes */}
           <Route
@@ -34,11 +38,25 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <AccountSettings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/help"
+            element={
+              <ProtectedRoute>
+                <HelpPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Redirect root to dashboard or login */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
-          {/* Catch all - redirect to dashboard */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AuthProvider>

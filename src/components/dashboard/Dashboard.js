@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Container, Box, Typography, Paper, Button, Grid } from '@mui/material';
+import { Container, Box, Typography, Paper, Button, Grid, Tooltip } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../Header';
@@ -55,43 +55,37 @@ const Dashboard = () => {
             </Button>
           </Paper>
 
+          {/* Buckets Section — top of dashboard */}
+          <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+              <Typography variant="h6">My Buckets</Typography>
+              <Tooltip title="Create a new savings goal bucket">
+                <Button variant="outlined" size="small" onClick={() => setCreateBucketOpen(true)}>
+                  + New Bucket
+                </Button>
+              </Tooltip>
+            </Box>
+            <BucketsList refreshTrigger={bucketsRefreshTrigger} />
+          </Paper>
+
           <Grid container spacing={3}>
             {/* Left Column - Actions */}
             <Grid item xs={12} md={4}>
-              <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+              <Paper elevation={3} sx={{ p: 3 }}>
                 <Typography variant="h6" gutterBottom>
                   Quick Actions
                 </Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
                   <PlaidLinkButton onSuccess={handlePlaidSuccess} />
-                  <Button
-                    variant="outlined"
-                    onClick={() => setCreateBucketOpen(true)}
-                  >
-                    Create Bucket
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    onClick={() => setFriendsOpen(true)}
-                  >
-                    Friends
-                  </Button>
+                  <Tooltip title="Manage friends, send invites, and accept bucket invitations">
+                    <Button
+                      variant="outlined"
+                      onClick={() => setFriendsOpen(true)}
+                    >
+                      Friends
+                    </Button>
+                  </Tooltip>
                 </Box>
-              </Paper>
-
-              <Paper elevation={3} sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom>
-                  Getting Started
-                </Typography>
-                <Typography variant="body2" paragraph>
-                  1. Connect your bank account using Plaid
-                </Typography>
-                <Typography variant="body2" paragraph>
-                  2. Create savings buckets for your personal goals
-                </Typography>
-                <Typography variant="body2" paragraph>
-                  3. Invite friends to create group savings goals
-                </Typography>
               </Paper>
             </Grid>
 
@@ -100,11 +94,6 @@ const Dashboard = () => {
               <AccountsList refreshTrigger={refreshTrigger} />
             </Grid>
           </Grid>
-
-          {/* Buckets Section */}
-          <Box sx={{ mt: 4 }}>
-            <BucketsList refreshTrigger={bucketsRefreshTrigger} />
-          </Box>
         </Box>
 
         {/* Create Bucket Dialog */}

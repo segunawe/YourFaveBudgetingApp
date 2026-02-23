@@ -237,4 +237,31 @@ router.post('/sync-accounts', async (req, res) => {
   }
 });
 
+// DELETE /api/plaid/items/:itemId
+// Disconnect a linked Plaid account
+router.delete('/items/:itemId', async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { itemId } = req.params;
+
+    const userRef = db.collection('users').doc(userId);
+    const userDoc = await userRef.get();
+    const userData = userDoc.data();
+
+    if (!userData.plaidItems || !userData.plaidItems[itemId]) {
+      return res.status(404).json({ error: 'Linked account not found' });
+    }
+
+    // Remove the item from plaidItems map
+    await userRef.update({
+      [`plaidItems.${itemId}`]: require('firebase-admin').firestore.FieldValue.delete(),
+    });
+
+    res.json({ success: true, message: 'Account disconnected' });
+  } catch (error) {
+    console.error('Error disconnecting Plaid account:', error);
+    res.status(500).json({ error: 'Failed to disconnect account', details: error.message });
+  }
+});
+
 module.exports = router;

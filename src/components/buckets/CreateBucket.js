@@ -17,6 +17,7 @@ import {
   ListItemText,
   ListItemIcon,
   Divider,
+  Tooltip,
 } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -153,34 +154,38 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
               disabled={loading}
             />
 
-            <TextField
-              label="Goal Amount"
-              name="goalAmount"
-              type="number"
-              value={formData.goalAmount}
-              onChange={handleChange}
-              required
-              fullWidth
-              inputProps={{ min: 0, step: 0.01 }}
-              InputProps={{
-                startAdornment: <InputAdornment position="start">$</InputAdornment>,
-              }}
-              placeholder="e.g., 2000"
-              disabled={loading}
-            />
+            <Tooltip title="The total savings target for this bucket" placement="right">
+              <TextField
+                label="Goal Amount"
+                name="goalAmount"
+                type="number"
+                value={formData.goalAmount}
+                onChange={handleChange}
+                required
+                fullWidth
+                inputProps={{ min: 0, step: 0.01 }}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                }}
+                placeholder="e.g., 2000"
+                disabled={loading}
+              />
+            </Tooltip>
 
-            <TextField
-              label="Target Date (Optional)"
-              name="targetDate"
-              type="date"
-              value={formData.targetDate}
-              onChange={handleChange}
-              fullWidth
-              InputLabelProps={{ shrink: true }}
-              inputProps={{ min: minDate }}
-              helperText="When do you want to reach this goal?"
-              disabled={loading}
-            />
+            <Tooltip title="On this date, if the goal is fully reached, funds will be automatically collected" placement="right">
+              <TextField
+                label="Target Date (Optional)"
+                name="targetDate"
+                type="date"
+                value={formData.targetDate}
+                onChange={handleChange}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                inputProps={{ min: minDate }}
+                helperText="When do you want to reach this goal?"
+                disabled={loading}
+              />
+            </Tooltip>
 
             <TextField
               label="Description (Optional)"
@@ -198,9 +203,11 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
             {friends.length > 0 && (
               <>
                 <Divider />
-                <Typography variant="subtitle2" color="text.secondary">
-                  Share with friends (optional)
-                </Typography>
+                <Tooltip title="Selected friends will receive an invite to contribute to this bucket" placement="right">
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ cursor: 'default' }}>
+                    Share with friends (optional)
+                  </Typography>
+                </Tooltip>
                 <List disablePadding dense>
                   {friends.map(friend => (
                     <ListItem
