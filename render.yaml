@@ -6,12 +6,9 @@ services:
     buildCommand: npm install
     startCommand: node src/server.js
     plan: free
-    nodeVersion: 20
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
       - key: FRONTEND_URL
         sync: false
       - key: FIREBASE_PROJECT_ID
