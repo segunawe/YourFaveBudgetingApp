@@ -390,7 +390,7 @@ const BucketDetail = () => {
           <Paper elevation={3} sx={{ p: 4, mb: 3 }}>
             <Typography variant="h6" gutterBottom>Add Funds</Typography>
             <form onSubmit={handleAllocate}>
-              <Box display="flex" gap={2}>
+              <Box display="flex" gap={2} sx={{ flexDirection: { xs: 'column', sm: 'row' } }}>
                 <Tooltip title="Amount to allocate from your available bank balance toward this goal" placement="top">
                   <TextField
                     label="Amount"
@@ -409,7 +409,11 @@ const BucketDetail = () => {
                   variant="contained"
                   disabled={allocating || !allocateAmount}
                   startIcon={allocating ? <CircularProgress size={20} /> : <AddIcon />}
-                  sx={{ minWidth: 150, height: 56 }}
+                  sx={{
+                    minWidth: { xs: 'unset', sm: 150 },
+                    width: { xs: '100%', sm: 'auto' },
+                    height: 56,
+                  }}
                 >
                   {allocating ? 'Adding...' : 'Add Funds'}
                 </Button>
