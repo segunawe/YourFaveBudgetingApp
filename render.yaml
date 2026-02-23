@@ -1,11 +1,12 @@
 services:
   - type: web
     name: yourfavebudgetingapp-api
-    runtime: node
+    env: node
     rootDir: server
     buildCommand: npm install
     startCommand: node src/server.js
     plan: free
+    nodeVersion: 20
     envVars:
       - key: NODE_ENV
         value: production
