@@ -32,7 +32,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import GroupIcon from '@mui/icons-material/Group';
 import StarIcon from '@mui/icons-material/Star';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';

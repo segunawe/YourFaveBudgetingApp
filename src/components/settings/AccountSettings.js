@@ -24,7 +24,7 @@ const Section = ({ title, children }) => (
 );
 
 const AccountSettings = () => {
-  const { currentUser, updateUserProfile, deleteAccount } = useAuth();
+  const { currentUser, deleteAccount } = useAuth();
   const navigate = useNavigate();
 
   const [success, setSuccess] = useState('');
