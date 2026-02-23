@@ -402,11 +402,6 @@ const BucketDetail = () => {
                     placeholder="0.00"
                     disabled={allocating}
                     fullWidth
-                    helperText={
-                      currentUser?.firestoreData?.transactionLimit
-                        ? `Transaction limit: $${currentUser.firestoreData.transactionLimit.toFixed(2)}`
-                        : undefined
-                    }
                   />
                 </Tooltip>
                 <Button
@@ -655,13 +650,6 @@ const BucketDetail = () => {
               Allocate <strong>{formatCurrency(pendingAmount || 0)}</strong> toward{' '}
               <strong>{bucket.name}</strong>?
             </Typography>
-            {currentUser?.firestoreData?.transactionLimit &&
-              pendingAmount >= currentUser.firestoreData.transactionLimit * 0.9 && (
-              <Alert severity="warning" sx={{ mt: 1 }}>
-                This is close to or at your transaction limit of{' '}
-                {formatCurrency(currentUser.firestoreData.transactionLimit)}.
-              </Alert>
-            )}
             <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
               Note: fund allocation is a virtual tracking action. No money is moved from your bank
               account at this time.

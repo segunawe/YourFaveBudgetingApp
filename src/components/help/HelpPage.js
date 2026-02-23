@@ -136,7 +136,8 @@ const HelpPage = () => {
             If your funds appear stuck in a bucket that hasn't reached its goal, open the bucket and use the "Request Funds Release" button to contact support.
           </Alert>
           <Typography variant="body2" color="text.secondary" paragraph>
-            For other questions or issues, email us at <strong>support@yourfavebudgetingapp.com</strong>.
+            For other questions or issues, use the <strong>Request Funds Release</strong> button
+            inside a bucket, or reach out through the app. Direct support contact is coming soon.
           </Typography>
           <Typography variant="body2" color="text.secondary">
             You can also review our <Link to="/terms" style={{ textDecoration: 'none' }}>Terms of Service</Link> for

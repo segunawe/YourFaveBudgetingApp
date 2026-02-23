@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import {
   Container, Box, Typography, Paper, TextField, Button, Divider,
   Alert, CircularProgress, Switch, FormControlLabel, Dialog,
-  DialogTitle, DialogContent, DialogActions, InputAdornment, Chip,
+  DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import {
-  updateEmail, updatePassword, reauthenticateWithCredential,
+  updatePassword, reauthenticateWithCredential,
   EmailAuthProvider,
 } from 'firebase/auth';
 import { auth } from '../../config/firebase';
@@ -36,14 +36,9 @@ const AccountSettings = () => {
 
   // Security
   const [currentPassword, setCurrentPassword] = useState('');
-  const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [savingSecurity, setSavingSecurity] = useState(false);
-
-  // Transaction limit
-  const [transactionLimit, setTransactionLimit] = useState('');
-  const [savingLimit, setSavingLimit] = useState(false);
 
   // Notifications
   const [notifEmail, setNotifEmail] = useState(true);
@@ -78,7 +73,6 @@ const AccountSettings = () => {
   useEffect(() => {
     const data = currentUser?.firestoreData;
     if (data) {
-      if (data.transactionLimit) setTransactionLimit(String(data.transactionLimit));
       if (data.notificationPrefs) {
         setNotifEmail(data.notificationPrefs.email ?? true);
         setNotifInApp(data.notificationPrefs.inApp ?? true);
@@ -114,23 +108,6 @@ const AccountSettings = () => {
     }
   };
 
-  const handleChangeEmail = async () => {
-    if (!newEmail || !currentPassword) return showError('Enter your current password and new email');
-    try {
-      setSavingSecurity(true);
-      const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
-      await reauthenticateWithCredential(auth.currentUser, credential);
-      await updateEmail(auth.currentUser, newEmail);
-      setNewEmail('');
-      setCurrentPassword('');
-      showSuccess('Email updated');
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      setSavingSecurity(false);
-    }
-  };
-
   const handleChangePassword = async () => {
     if (!currentPassword || !newPassword) return showError('Fill in all password fields');
     if (newPassword !== confirmNewPassword) return showError('New passwords do not match');
@@ -148,27 +125,6 @@ const AccountSettings = () => {
       showError(err.message);
     } finally {
       setSavingSecurity(false);
-    }
-  };
-
-  const handleSaveLimit = async () => {
-    const limit = transactionLimit === '' ? null : parseFloat(transactionLimit);
-    if (limit !== null && (isNaN(limit) || limit <= 0)) return showError('Enter a valid positive amount');
-    try {
-      setSavingLimit(true);
-      const token = await getToken();
-      const res = await fetch(`${apiUrl}/users/profile`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ transactionLimit: limit }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      showSuccess(limit ? `Transaction limit set to $${limit.toFixed(2)}` : 'Transaction limit removed');
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      setSavingLimit(false);
     }
   };
 
@@ -259,35 +215,6 @@ const AccountSettings = () => {
 
         {/* Security */}
         <Section title="Security">
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>Change Email</Typography>
-          <Box display="flex" flexDirection="column" gap={2} mb={3}>
-            <TextField
-              label="Current Password"
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              fullWidth
-              disabled={savingSecurity}
-            />
-            <TextField
-              label="New Email"
-              type="email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              fullWidth
-              disabled={savingSecurity}
-            />
-            <Button
-              variant="outlined"
-              onClick={handleChangeEmail}
-              disabled={savingSecurity || !newEmail || !currentPassword}
-            >
-              {savingSecurity ? <CircularProgress size={20} /> : 'Update Email'}
-            </Button>
-          </Box>
-
-          <Divider sx={{ my: 2 }} />
-
           <Typography variant="subtitle2" color="text.secondary" gutterBottom>Change Password</Typography>
           <Box display="flex" flexDirection="column" gap={2}>
             <TextField
@@ -321,34 +248,6 @@ const AccountSettings = () => {
               disabled={savingSecurity || !newPassword || !currentPassword}
             >
               {savingSecurity ? <CircularProgress size={20} /> : 'Update Password'}
-            </Button>
-          </Box>
-        </Section>
-
-        {/* Transaction Limit */}
-        <Section title="Transaction Limit">
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Set a maximum amount you can allocate in a single transaction. Leave blank for no limit.
-          </Typography>
-          <Box display="flex" gap={2} alignItems="flex-start">
-            <TextField
-              label="Max per transaction"
-              type="number"
-              value={transactionLimit}
-              onChange={(e) => setTransactionLimit(e.target.value)}
-              fullWidth
-              inputProps={{ min: 0, step: 0.01 }}
-              InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-              placeholder="No limit"
-              disabled={savingLimit}
-            />
-            <Button
-              variant="contained"
-              onClick={handleSaveLimit}
-              disabled={savingLimit}
-              sx={{ minWidth: 100, height: 56 }}
-            >
-              {savingLimit ? <CircularProgress size={20} /> : 'Save'}
             </Button>
           </Box>
         </Section>

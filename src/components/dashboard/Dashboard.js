@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Container, Box, Typography, Paper, Button, Grid, Tooltip } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
 import Header from '../../Header';
 import PlaidLinkButton from '../plaid/PlaidLinkButton';
 import AccountsList from '../plaid/AccountsList';
@@ -10,21 +9,11 @@ import BucketsList from '../buckets/BucketsList';
 import FriendsManager from '../friends/FriendsManager';
 
 const Dashboard = () => {
-  const { currentUser, logout } = useAuth();
-  const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [bucketsRefreshTrigger, setBucketsRefreshTrigger] = useState(0);
   const [createBucketOpen, setCreateBucketOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      navigate('/login');
-    } catch (error) {
-      console.error('Failed to log out:', error);
-    }
-  };
 
   const handlePlaidSuccess = (accounts) => {
     console.log('Successfully connected accounts:', accounts);
@@ -47,12 +36,9 @@ const Dashboard = () => {
             <Typography variant="h4" gutterBottom>
               Welcome, {currentUser?.displayName || 'User'}!
             </Typography>
-            <Typography variant="body1" color="text.secondary" gutterBottom>
-              Email: {currentUser?.email}
+            <Typography variant="body1" color="text.secondary">
+              {currentUser?.email}
             </Typography>
-            <Button variant="contained" color="primary" onClick={handleLogout} sx={{ mt: 2 }}>
-              Log Out
-            </Button>
           </Paper>
 
           {/* Buckets Section — top of dashboard */}

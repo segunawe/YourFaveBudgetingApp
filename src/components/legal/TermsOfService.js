@@ -169,9 +169,9 @@ const TermsOfService = () => {
 
           <Section title="12. Contact">
             <Typography variant="body1">
-              If you have questions about these Terms, need to dispute a stuck funds situation, or
-              require support, please use the in-app Help & Support page or contact us at{' '}
-              <strong>support@yourfavebudgetingapp.com</strong>.
+              If you have questions about these Terms or need to dispute a stuck funds situation,
+              please use the in-app Help &amp; Support page or the Request Funds Release feature
+              available within any bucket.
             </Typography>
           </Section>
 
