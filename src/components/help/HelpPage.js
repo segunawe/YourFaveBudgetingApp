@@ -77,7 +77,7 @@ const HelpPage = () => {
       <Container maxWidth="md" sx={{ mt: 4, mb: 6 }}>
         <Typography variant="h4" fontWeight="bold" gutterBottom>Help & Support</Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-          Everything you need to know about using YourFaveBudgetingApp.
+          Everything you need to know about using AJOIN.
         </Typography>
 
         {/* Feature Guide */}

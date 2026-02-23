@@ -32,14 +32,14 @@ const TermsOfService = () => {
           <Divider sx={{ my: 3 }} />
 
           <Typography variant="body1" sx={{ mb: 3 }}>
-            Please read these Terms of Service ("Terms") carefully before using YourFaveBudgetingApp
+            Please read these Terms of Service ("Terms") carefully before using AJOIN
             ("the App", "we", "our", or "us"). By creating an account and using the App, you agree
             to be bound by these Terms.
           </Typography>
 
           <Section title="1. Service Description">
             <Typography variant="body1" paragraph>
-              YourFaveBudgetingApp is a personal and group savings goal tracking platform. The App
+              AJOIN is a personal and group savings goal tracking platform. The App
               allows users to set savings goals, track progress, and coordinate group saving efforts
               with friends. The App is <strong>not a bank, credit union, or financial institution</strong>.
             </Typography>
@@ -84,7 +84,7 @@ const TermsOfService = () => {
 
           <Section title="5. No Guaranteed Returns">
             <Typography variant="body1">
-              YourFaveBudgetingApp does <strong>not offer interest, investment returns, dividends,
+              AJOIN does <strong>not offer interest, investment returns, dividends,
               or any financial yield</strong> on saved amounts. The App is strictly a savings goal
               tracker and coordination tool. Nothing in the App should be construed as financial
               advice or an investment solicitation.
@@ -123,7 +123,7 @@ const TermsOfService = () => {
 
           <Section title="8. Limitation of Liability">
             <Typography variant="body1" paragraph>
-              To the fullest extent permitted by law, YourFaveBudgetingApp and its operators shall
+              To the fullest extent permitted by law, AJOIN and its operators shall
               not be liable for any:
             </Typography>
             <Box component="ul" sx={{ pl: 3 }}>

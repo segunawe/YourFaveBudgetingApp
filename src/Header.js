@@ -69,7 +69,7 @@ function Header() {
             color="inherit"
             onClick={() => navigate('/dashboard')}
           >
-            YourFaveBudgetingApp
+            AJOIN
           </Typography>
         </Toolbar>
       </AppBar>
