@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../config/firebase');
 const admin = require('firebase-admin');
+const stripe = require('../config/stripe');
 
 // Helper: check if a user is a member of a bucket
 const isMember = (bucket, uid) => {
@@ -100,6 +101,21 @@ router.post('/', async (req, res) => {
     // Fetch creator profile for member entry
     const creatorDoc = await db.collection('users').doc(userId).get();
     const creatorData = creatorDoc.data();
+
+    // Enforce free tier limit: 1 active or completed bucket at a time
+    const tier = creatorData.tier || 'free';
+    if (tier === 'free') {
+      const activeSnap = await db.collection('buckets')
+        .where('userId', '==', userId)
+        .where('status', 'in', ['active', 'completed'])
+        .get();
+      if (!activeSnap.empty) {
+        return res.status(403).json({
+          error: 'Free plan limit reached. Upgrade to AJOIN Plus for unlimited groups.',
+          code: 'TIER_LIMIT_REACHED',
+        });
+      }
+    }
 
     const ownerMember = {
       uid: userId,
@@ -219,80 +235,58 @@ router.post('/:id/allocate', async (req, res) => {
       });
     }
 
-    let totalBankBalance = 0;
-    if (userData.plaidItems) {
-      Object.values(userData.plaidItems).forEach(item => {
-        if (item.accounts) {
-          item.accounts.forEach(account => {
-            totalBankBalance += account.balance.current || 0;
-          });
-        }
+    // Require ACH payment method
+    const stripeCustomerId = userData.stripeCustomerId;
+    const stripeAchPaymentMethodId = userData.stripeAchPaymentMethodId;
+    if (!stripeCustomerId || !stripeAchPaymentMethodId) {
+      return res.status(402).json({
+        error: 'Bank not set up for ACH. Please set up your bank account first.',
+        code: 'ACH_NOT_CONFIGURED',
       });
     }
 
-    // Calculate how much this user has already allocated across their buckets
-    const userBucketsSnapshot = await db
-      .collection('buckets')
-      .where('memberUids', 'array-contains', userId)
-      .where('status', '==', 'active')
-      .get();
-
-    // Also check buckets the user owns (for pre-sharing buckets without memberUids)
-    const ownedBucketsSnapshot = await db
-      .collection('buckets')
-      .where('userId', '==', userId)
-      .where('status', '==', 'active')
-      .get();
-
-    const seenIds = new Set();
-    let totalAllocated = 0;
-
-    const countAllocation = (doc) => {
-      if (seenIds.has(doc.id)) return;
-      seenIds.add(doc.id);
-      const data = doc.data();
-      // Sum contributions from this user only
-      const userContributions = (data.contributions || [])
-        .filter(c => c.uid === userId || (!c.uid && data.userId === userId))
-        .reduce((sum, c) => sum + (c.amount || 0), 0);
-      totalAllocated += userContributions;
-    };
-
-    userBucketsSnapshot.forEach(countAllocation);
-    ownedBucketsSnapshot.forEach(countAllocation);
-
-    const availableBalance = totalBankBalance - totalAllocated;
-
-    if (amount > availableBalance) {
-      return res.status(400).json({
-        error: 'Insufficient available balance',
-        available: availableBalance,
-        requested: amount
-      });
-    }
+    // Create Stripe PaymentIntent for ACH debit
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(parseFloat(amount) * 100),
+      currency: 'usd',
+      customer: stripeCustomerId,
+      payment_method: stripeAchPaymentMethodId,
+      payment_method_types: ['us_bank_account'],
+      confirm: true,
+      mandate_data: {
+        customer_acceptance: {
+          type: 'online',
+          online: {
+            ip_address: req.ip,
+            user_agent: req.headers['user-agent'],
+          },
+        },
+      },
+      metadata: { bucketId: id, contributorUid: userId },
+    });
 
     const contribution = {
       amount: parseFloat(amount),
       date: admin.firestore.Timestamp.now(),
       uid: userId,
+      stripePaymentIntentId: paymentIntent.id,
+      paymentStatus: 'pending',
+      settledAt: null,
+      failureReason: null,
     };
 
-    const newCurrentAmount = bucket.currentAmount + parseFloat(amount);
-    const newStatus = newCurrentAmount >= bucket.goalAmount ? 'completed' : 'active';
-
+    // Do NOT increment currentAmount yet — webhook handles that on settlement
     await bucketRef.update({
-      currentAmount: newCurrentAmount,
-      status: newStatus,
+      pendingAmount: admin.firestore.FieldValue.increment(parseFloat(amount)),
       contributions: admin.firestore.FieldValue.arrayUnion(contribution),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     res.json({
       success: true,
-      currentAmount: newCurrentAmount,
+      paymentIntentId: paymentIntent.id,
+      paymentStatus: 'pending',
       goalAmount: bucket.goalAmount,
-      status: newStatus,
-      availableBalance: availableBalance - parseFloat(amount),
     });
   } catch (error) {
     console.error('Error allocating funds:', error);
@@ -332,16 +326,55 @@ router.post('/:id/collect', async (req, res) => {
       });
     }
 
+    // Block if any ACH contributions are still pending
+    const contributions = bucket.contributions || [];
+    const pendingAch = contributions.filter(
+      c => c.stripePaymentIntentId && c.paymentStatus === 'pending'
+    );
+    if (pendingAch.length > 0) {
+      const pendingTotal = pendingAch.reduce((sum, c) => sum + (c.amount || 0), 0);
+      return res.status(400).json({
+        error: 'Not all contributions have settled',
+        pendingCount: pendingAch.length,
+        pendingAmount: pendingTotal,
+      });
+    }
+
+    // Require Connect account to be onboarded
+    const collectorDoc = await db.collection('users').doc(userId).get();
+    const collectorData = collectorDoc.data();
+    const { stripeConnectAccountId, stripeConnectOnboarded } = collectorData;
+    if (!stripeConnectAccountId || !stripeConnectOnboarded) {
+      return res.status(402).json({
+        error: 'Payout account not set up. Complete Connect onboarding first.',
+        code: 'CONNECT_NOT_ONBOARDED',
+      });
+    }
+
+    // Sum only settled contributions
+    const settledAmount = contributions
+      .filter(c => !c.stripePaymentIntentId || c.paymentStatus === 'succeeded')
+      .reduce((sum, c) => sum + (c.amount || 0), 0);
+
+    const transfer = await stripe.transfers.create({
+      amount: Math.round(settledAmount * 100),
+      currency: 'usd',
+      destination: stripeConnectAccountId,
+      metadata: { bucketId: id, collectorUid: userId },
+    });
+
     await bucketRef.update({
       status: 'collected',
       collectedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      stripeTransferId: transfer.id,
     });
 
     res.json({
       success: true,
       message: 'Funds collected successfully',
-      amount: bucket.currentAmount,
+      amount: settledAmount,
+      stripeTransferId: transfer.id,
     });
   } catch (error) {
     console.error('Error collecting funds:', error);

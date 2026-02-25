@@ -9,6 +9,7 @@ import BucketDetail from './components/buckets/BucketDetail';
 import AccountSettings from './components/settings/AccountSettings';
 import HelpPage from './components/help/HelpPage';
 import TermsOfService from './components/legal/TermsOfService';
+import UpgradeSuccess from './components/subscription/UpgradeSuccess';
 import './App.css';
 
 function App() {
@@ -51,6 +52,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <HelpPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/upgrade-success"
+            element={
+              <ProtectedRoute>
+                <UpgradeSuccess />
               </ProtectedRoute>
             }
           />

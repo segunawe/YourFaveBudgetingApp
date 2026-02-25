@@ -20,6 +20,7 @@ import {
   Tooltip,
 } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
+import UpgradeDialog from '../subscription/UpgradeDialog';
 
 const CreateBucket = ({ open, onClose, onSuccess }) => {
   const [formData, setFormData] = useState({
@@ -30,6 +31,7 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const { currentUser } = useAuth();
 
   const [friends, setFriends] = useState([]);
@@ -100,6 +102,11 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
       const data = await response.json();
 
       if (!response.ok) {
+        if (data.code === 'TIER_LIMIT_REACHED') {
+          onClose();
+          setUpgradeOpen(true);
+          return;
+        }
         throw new Error(data.error || 'Failed to create bucket');
       }
 
@@ -130,6 +137,8 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
   const minDate = tomorrow.toISOString().split('T')[0];
 
   return (
+    <>
+    <UpgradeDialog open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <form onSubmit={handleSubmit}>
         <DialogTitle>Create New Bucket</DialogTitle>
@@ -253,6 +262,7 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
         </DialogActions>
       </form>
     </Dialog>
+    </>
   );
 };
 

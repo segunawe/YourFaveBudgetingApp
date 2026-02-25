@@ -5,11 +5,13 @@ import {
   CircularProgress,
   Alert,
   Chip,
+  Button,
 } from '@mui/material';
 import GroupIcon from '@mui/icons-material/Group';
 import SavingsIcon from '@mui/icons-material/Savings';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import UpgradeDialog from '../subscription/UpgradeDialog';
 
 const BucketRing = ({ bucket, onClick }) => {
   const progress = Math.min((bucket.currentAmount / bucket.goalAmount) * 100, 100);
@@ -99,6 +101,7 @@ const BucketsList = ({ refreshTrigger }) => {
   const [buckets, setBuckets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const { currentUser } = useAuth();
   const navigate = useNavigate();
 
@@ -149,6 +152,12 @@ const BucketsList = ({ refreshTrigger }) => {
 
   const activeBuckets = buckets.filter(b => b.status !== 'collected');
 
+  const isFreeTierFull =
+    currentUser?.firestoreData?.tier !== 'plus' &&
+    buckets.some(
+      b => b.userId === currentUser?.uid && ['active', 'completed'].includes(b.status)
+    );
+
   if (activeBuckets.length === 0) {
     return (
       <Box
@@ -165,25 +174,41 @@ const BucketsList = ({ refreshTrigger }) => {
   }
 
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'row',
-        gap: 1,
-        overflowX: 'auto',
-        pb: 1,
-        '&::-webkit-scrollbar': { height: 4 },
-        '&::-webkit-scrollbar-thumb': { borderRadius: 2, bgcolor: 'grey.300' },
-      }}
-    >
-      {activeBuckets.map(bucket => (
-        <BucketRing
-          key={bucket.id}
-          bucket={bucket}
-          onClick={() => navigate(`/buckets/${bucket.id}`)}
-        />
-      ))}
-    </Box>
+    <>
+      <UpgradeDialog open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
+      {isFreeTierFull && (
+        <Alert
+          severity="info"
+          sx={{ mb: 1.5 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => setUpgradeOpen(true)}>
+              Upgrade
+            </Button>
+          }
+        >
+          You've used your free group. Upgrade to Plus for unlimited.
+        </Alert>
+      )}
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'row',
+          gap: 1,
+          overflowX: 'auto',
+          pb: 1,
+          '&::-webkit-scrollbar': { height: 4 },
+          '&::-webkit-scrollbar-thumb': { borderRadius: 2, bgcolor: 'grey.300' },
+        }}
+      >
+        {activeBuckets.map(bucket => (
+          <BucketRing
+            key={bucket.id}
+            bucket={bucket}
+            onClick={() => navigate(`/buckets/${bucket.id}`)}
+          />
+        ))}
+      </Box>
+    </>
   );
 };
 

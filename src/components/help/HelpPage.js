@@ -17,8 +17,8 @@ const faqs = [
     answer: 'A Bucket is a savings goal. You give it a name, a target amount, and an optional deadline. You then allocate funds toward it from your linked bank balance. The bucket tracks your progress until the goal is reached.',
   },
   {
-    question: 'Does allocating funds actually move my money?',
-    answer: 'Not yet. In the current version, fund allocation is a virtual tracking action. It records your intention to save a certain amount, but no money is moved from your bank account. Real fund transfers are coming in a future version.',
+    question: 'Does contributing actually move my money?',
+    answer: 'Yes. When you add funds to a bucket, AJOIN initiates a real ACH debit from your linked bank account via Stripe. Funds are held securely and transferred to the collector when the goal is reached. ACH debits typically settle within 1–4 business days.',
   },
   {
     question: 'What is a shared bucket?',
@@ -45,12 +45,12 @@ const faqs = [
     answer: 'Open the bucket detail page and click "Invite Friend" in the Members section. You can invite any friend who is not already a member. They\'ll receive a bucket invite and must accept before they appear as a member.',
   },
   {
-    question: 'How do I disconnect a bank account?',
-    answer: 'Go to Account Settings → Linked Bank Accounts and click "Disconnect" next to the account you want to remove.',
+    question: 'How do I remove my linked bank account?',
+    answer: 'Go to Account Settings → Bank Account for Contributions and click "Remove". You can link a new account at any time from Settings or when making a contribution inside a bucket.',
   },
   {
     question: 'Is my data secure?',
-    answer: 'Yes. We use Firebase for secure authentication and data storage, and Plaid for bank connectivity. We never store your full bank credentials. See our Terms of Service for full details.',
+    answer: 'Yes. We use Firebase for secure authentication and data storage, and Stripe for bank connectivity and payment processing. We never store your full bank credentials. See our Terms of Service for full details.',
   },
   {
     question: 'How do I delete my account?',
@@ -86,8 +86,8 @@ const HelpPage = () => {
           <Divider sx={{ mb: 3 }} />
           <FeatureCard
             icon={<AccountBalanceIcon />}
-            title="Connect Your Bank"
-            description="Link your bank account via Plaid to see your balance. This lets the app track how much you have available to allocate toward your goals."
+            title="Link Your Bank Account"
+            description="Securely link your bank account via Stripe. When you contribute to a bucket, a real ACH debit is initiated from your linked account and held until the goal is collected."
           />
           <FeatureCard
             icon={<SavingsIcon />}

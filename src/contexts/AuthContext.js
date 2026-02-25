@@ -50,6 +50,9 @@ export const AuthProvider = ({ children }) => {
         termsAcceptedAt: new Date(),
         transactionLimit: null,
         notificationPrefs: { email: true, inApp: true },
+        tier: 'free',
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
       });
 
       return user;
@@ -128,6 +131,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Re-fetch Firestore doc and update currentUser.firestoreData in state
+  const refreshUserData = async () => {
+    if (!auth.currentUser) return;
+    const userData = await getUserData(auth.currentUser.uid);
+    auth.currentUser.firestoreData = userData;
+    setCurrentUser(Object.assign(Object.create(Object.getPrototypeOf(auth.currentUser)), auth.currentUser));
+  };
+
   // Listen to auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -157,6 +168,7 @@ export const AuthProvider = ({ children }) => {
     logout,
     updateUserProfile,
     getUserData,
+    refreshUserData,
     deleteAccount,
   };
 

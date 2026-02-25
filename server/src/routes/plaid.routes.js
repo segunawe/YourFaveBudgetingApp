@@ -237,6 +237,38 @@ router.post('/sync-accounts', async (req, res) => {
   }
 });
 
+// POST /api/plaid/processor-token
+// Create a Stripe processor token for a specific Plaid account (single-use)
+router.post('/processor-token', async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { itemId, accountId } = req.body;
+
+    if (!itemId || !accountId) {
+      return res.status(400).json({ error: 'itemId and accountId are required' });
+    }
+
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+
+    if (!userData.plaidItems || !userData.plaidItems[itemId]) {
+      return res.status(404).json({ error: 'Plaid item not found' });
+    }
+
+    const accessToken = userData.plaidItems[itemId].accessToken;
+
+    const response = await plaidClient.processorStripeBankAccountTokenCreate({
+      access_token: accessToken,
+      account_id: accountId,
+    });
+
+    res.json({ processorToken: response.data.processor_token });
+  } catch (error) {
+    console.error('Error creating processor token:', error);
+    res.status(500).json({ error: 'Failed to create processor token', details: error.message });
+  }
+});
+
 // DELETE /api/plaid/items/:itemId
 // Disconnect a linked Plaid account
 router.delete('/items/:itemId', async (req, res) => {
@@ -252,10 +284,24 @@ router.delete('/items/:itemId', async (req, res) => {
       return res.status(404).json({ error: 'Linked account not found' });
     }
 
-    // Remove the item from plaidItems map
-    await userRef.update({
+    // Check if the ACH payment method is tied to any account in this item
+    const deletedItem = userData.plaidItems[itemId];
+    const deletedAccountIds = (deletedItem.accounts || []).map(a => a.id);
+    const achLinkedAccountId = userData.stripeAchLinkedAccountId;
+
+    const updates = {
       [`plaidItems.${itemId}`]: require('firebase-admin').firestore.FieldValue.delete(),
-    });
+    };
+
+    // Clear ACH fields if the linked ACH account belongs to this item
+    if (achLinkedAccountId && deletedAccountIds.includes(achLinkedAccountId)) {
+      updates.stripeAchPaymentMethodId = null;
+      updates.stripeAchAccountLast4 = null;
+      updates.stripeAchBankName = null;
+      updates.stripeAchLinkedAccountId = null;
+    }
+
+    await userRef.update(updates);
 
     res.json({ success: true, message: 'Account disconnected' });
   } catch (error) {

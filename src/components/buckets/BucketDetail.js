@@ -36,6 +36,8 @@ import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import Header from '../../Header';
+import AchSetupBanner from './AchSetupBanner';
+import ConnectOnboardingBanner from './ConnectOnboardingBanner';
 
 const BucketDetail = () => {
   const { id } = useParams();
@@ -73,6 +75,11 @@ const BucketDetail = () => {
   const [newCollectorUid, setNewCollectorUid] = useState('');
   const [changingCollector, setChangingCollector] = useState(false);
 
+  // ACH / Connect state
+  const [achReady, setAchReady] = useState(false);
+  const [achInfo, setAchInfo] = useState({ last4: null, bankName: null });
+  const [collectReady, setCollectReady] = useState(false);
+
   const fetchBucket = async () => {
     try {
       setLoading(true);
@@ -106,9 +113,26 @@ const BucketDetail = () => {
     }
   };
 
+  const fetchAchStatus = async () => {
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${process.env.REACT_APP_API_URL}/stripe/ach-status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.hasAchMethod) {
+        setAchReady(true);
+        setAchInfo({ last4: data.last4, bankName: data.bankName });
+      }
+    } catch (err) {
+      console.error('Error fetching ACH status:', err);
+    }
+  };
+
   useEffect(() => {
     fetchBucket();
     fetchStuckRequests();
+    fetchAchStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -370,16 +394,31 @@ const BucketDetail = () => {
               Target Date: {formatDate(bucket.targetDate)}
             </Typography>
             {bucket.status === 'completed' && isCollector && (
-              <Button
-                variant="contained"
-                color="success"
-                size="large"
-                onClick={handleCollect}
-                disabled={collecting}
-                startIcon={collecting ? <CircularProgress size={20} /> : <CheckCircleIcon />}
-              >
-                {collecting ? 'Collecting...' : 'Collect Funds'}
-              </Button>
+              <>
+                {!collectReady && (
+                  <ConnectOnboardingBanner onReady={() => setCollectReady(true)} />
+                )}
+                <Tooltip
+                  title={
+                    bucket.pendingAmount > 0
+                      ? `Waiting for ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(bucket.pendingAmount || 0)} in pending contributions`
+                      : ''
+                  }
+                >
+                  <span>
+                    <Button
+                      variant="contained"
+                      color="success"
+                      size="large"
+                      onClick={handleCollect}
+                      disabled={collecting || !collectReady || (bucket.pendingAmount || 0) > 0}
+                      startIcon={collecting ? <CircularProgress size={20} /> : <CheckCircleIcon />}
+                    >
+                      {collecting ? 'Collecting...' : 'Collect Funds'}
+                    </Button>
+                  </span>
+                </Tooltip>
+              </>
             )}
           </Box>
         </Paper>
@@ -388,9 +427,25 @@ const BucketDetail = () => {
         {bucket.status !== 'completed' && (
           <Paper elevation={3} sx={{ p: 4, mb: 3 }}>
             <Typography variant="h6" gutterBottom>Add Funds</Typography>
+
+            {!achReady && (
+              <AchSetupBanner
+                onSetupComplete={({ last4, bankName }) => {
+                  setAchReady(true);
+                  setAchInfo({ last4, bankName });
+                }}
+              />
+            )}
+
+            {achReady && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Contributing via <strong>{achInfo.bankName}</strong> ****{achInfo.last4}
+              </Typography>
+            )}
+
             <form onSubmit={handleAllocate}>
               <Box display="flex" gap={2} sx={{ flexDirection: { xs: 'column', sm: 'row' } }}>
-                <Tooltip title="Amount to allocate from your available bank balance toward this goal" placement="top">
+                <Tooltip title="Amount to debit via ACH from your linked bank account" placement="top">
                   <TextField
                     label="Amount"
                     type="number"
@@ -399,14 +454,14 @@ const BucketDetail = () => {
                     inputProps={{ min: 0, step: 0.01 }}
                     InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                     placeholder="0.00"
-                    disabled={allocating}
+                    disabled={allocating || !achReady}
                     fullWidth
                   />
                 </Tooltip>
                 <Button
                   type="submit"
                   variant="contained"
-                  disabled={allocating || !allocateAmount}
+                  disabled={allocating || !allocateAmount || !achReady}
                   startIcon={allocating ? <CircularProgress size={20} /> : <AddIcon />}
                   sx={{
                     minWidth: { xs: 'unset', sm: 150 },
@@ -518,10 +573,27 @@ const BucketDetail = () => {
                 const dateVal = contribution.date?.toDate
                   ? contribution.date.toDate()
                   : new Date(contribution.date);
+
+                let statusChip = null;
+                if (!contribution.stripePaymentIntentId) {
+                  statusChip = <Chip label="Virtual" size="small" sx={{ ml: 1 }} />;
+                } else if (contribution.paymentStatus === 'pending') {
+                  statusChip = <Chip label="Pending" size="small" color="warning" sx={{ ml: 1 }} />;
+                } else if (contribution.paymentStatus === 'failed') {
+                  statusChip = <Chip label="Payment Failed" size="small" color="error" sx={{ ml: 1 }} />;
+                } else if (contribution.paymentStatus === 'reversed') {
+                  statusChip = <Chip label="Reversed" size="small" color="error" sx={{ ml: 1 }} />;
+                }
+
                 return (
                   <ListItem key={index} divider>
                     <ListItemText
-                      primary={formatCurrency(contribution.amount)}
+                      primary={
+                        <Box display="flex" alignItems="center">
+                          {formatCurrency(contribution.amount)}
+                          {statusChip}
+                        </Box>
+                      }
                       secondary={
                         <>
                           {contributor && <span style={{ marginRight: 8 }}>{contributor.displayName} &middot;</span>}
@@ -647,21 +719,29 @@ const BucketDetail = () => {
 
         {/* Allocate Confirmation Dialog */}
         <Dialog open={confirmDialogOpen} onClose={() => setConfirmDialogOpen(false)} maxWidth="xs" fullWidth>
-          <DialogTitle>Confirm Allocation</DialogTitle>
+          <DialogTitle>Authorize ACH Debit</DialogTitle>
           <DialogContent>
-            <Typography sx={{ mb: 1 }}>
-              Allocate <strong>{formatCurrency(pendingAmount || 0)}</strong> toward{' '}
-              <strong>{bucket.name}</strong>?
+            <Typography sx={{ mb: 2 }}>
+              Contribute <strong>{formatCurrency(pendingAmount || 0)}</strong> toward{' '}
+              <strong>{bucket.name}</strong>
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-              Note: fund allocation is a virtual tracking action. No money is moved from your bank
-              account at this time.
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              By clicking <strong>Authorize</strong>, you authorize AJOIN to electronically debit{' '}
+              <strong>{formatCurrency(pendingAmount || 0)}</strong> from your{' '}
+              {achInfo.bankName ? <strong>{achInfo.bankName}</strong> : 'bank'} account ending in{' '}
+              <strong>{achInfo.last4 || '****'}</strong> on today's date. This debit is governed by
+              the NACHA Rules and processed via Stripe.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Funds typically settle within 1–4 business days and will show as Pending until then.
+              This authorization will remain in effect until you remove your linked bank account or
+              cancel the contribution.
             </Typography>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setConfirmDialogOpen(false)}>Cancel</Button>
             <Button variant="contained" onClick={handleConfirmAllocate}>
-              Confirm
+              Authorize
             </Button>
           </DialogActions>
         </Dialog>

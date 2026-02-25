@@ -3,6 +3,22 @@ const router = express.Router();
 const { db, auth } = require('../config/firebase');
 const admin = require('firebase-admin');
 
+// GET /api/users/me
+// Return current user's Firestore doc (includes tier)
+router.get('/me', async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(userDoc.data());
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ error: 'Failed to fetch user', details: error.message });
+  }
+});
+
 // PATCH /api/users/profile
 // Update display name, transaction limit, or notification preferences
 router.patch('/profile', async (req, res) => {
