@@ -204,6 +204,7 @@ const AccountSettings = () => {
       const { setupIntent: collected, error: collectError } = await stripe.collectBankAccountForSetup({
         clientSecret: siData.clientSecret,
         params: {
+          payment_method_type: 'us_bank_account',
           payment_method_data: {
             billing_details: {
               name: currentUser.displayName || currentUser.email,
