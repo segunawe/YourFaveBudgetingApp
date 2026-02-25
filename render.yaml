@@ -17,11 +17,15 @@ services:
         sync: false
       - key: FIREBASE_PRIVATE_KEY
         sync: false
-      - key: PLAID_CLIENT_ID
+      - key: STRIPE_SECRET_KEY
         sync: false
-      - key: PLAID_SECRET
+      - key: STRIPE_WEBHOOK_SECRET
         sync: false
-      - key: PLAID_ENV
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: STRIPE_CONNECT_RETURN_URL
         sync: false
       - key: GMAIL_USER
         sync: false
