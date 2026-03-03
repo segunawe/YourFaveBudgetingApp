@@ -18,6 +18,10 @@ import {
   ListItemIcon,
   Divider,
   Tooltip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import UpgradeDialog from '../subscription/UpgradeDialog';
@@ -32,7 +36,10 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [approvalThreshold, setApprovalThreshold] = useState('majority');
   const { currentUser } = useAuth();
+
+  const tier = currentUser?.firestoreData?.tier || 'free';
 
   const [friends, setFriends] = useState([]);
   const [selectedFriendUids, setSelectedFriendUids] = useState([]);
@@ -96,6 +103,7 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
           targetDate: formData.targetDate || null,
           description: formData.description.trim(),
           memberUids: selectedFriendUids,
+          approvalThreshold,
         }),
       });
 
@@ -112,6 +120,7 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
 
       setFormData({ name: '', goalAmount: '', targetDate: '', description: '' });
       setSelectedFriendUids([]);
+      setApprovalThreshold('majority');
 
       if (onSuccess) onSuccess(data);
       onClose();
@@ -127,6 +136,7 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
     if (!loading) {
       setFormData({ name: '', goalAmount: '', targetDate: '', description: '' });
       setSelectedFriendUids([]);
+      setApprovalThreshold('majority');
       setError(null);
       onClose();
     }
@@ -145,6 +155,12 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
 
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <Alert severity="info">
+              Contributions are locked until the goal is reached. If no contribution is made for
+              90 days, the bucket owner may cancel and request refunds. All payments are processed
+              by Stripe and are subject to Stripe's refund timelines (typically 5–10 business days).
+            </Alert>
+
             {error && (
               <Alert severity="error" onClose={() => setError(null)}>
                 {error}
@@ -242,6 +258,34 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
                     </ListItem>
                   ))}
                 </List>
+
+                {/* Collection approval threshold — only relevant for shared buckets */}
+                {selectedFriendUids.length > 0 && (
+                  <>
+                    <Divider />
+                    <FormControl fullWidth disabled={loading || tier === 'free'}>
+                      <InputLabel>Collection Approval Threshold</InputLabel>
+                      <Select
+                        value={tier === 'free' ? 'majority' : approvalThreshold}
+                        label="Collection Approval Threshold"
+                        onChange={(e) => setApprovalThreshold(e.target.value)}
+                      >
+                        <MenuItem value="majority">Majority (&gt;50%) — all tiers</MenuItem>
+                        {tier === 'plus' && <MenuItem value="two_thirds">Two-thirds (≥67%) — Plus</MenuItem>}
+                        {tier === 'plus' && <MenuItem value="unanimous">Unanimous (100%) — Plus</MenuItem>}
+                      </Select>
+                    </FormControl>
+                    {tier === 'free' && (
+                      <Typography variant="caption" color="text.secondary">
+                        Upgrade to AJOIN Plus to choose two-thirds or unanimous approval thresholds.
+                      </Typography>
+                    )}
+                    <Typography variant="caption" color="text.secondary">
+                      When the goal is reached, members must vote to approve the collector before
+                      funds can be released.
+                    </Typography>
+                  </>
+                )}
               </>
             )}
           </Box>

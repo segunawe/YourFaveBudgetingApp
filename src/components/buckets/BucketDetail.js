@@ -33,6 +33,9 @@ import GroupIcon from '@mui/icons-material/Group';
 import StarIcon from '@mui/icons-material/Star';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent';
+import ThumbUpIcon from '@mui/icons-material/ThumbUp';
+import ThumbDownIcon from '@mui/icons-material/ThumbDown';
+import CancelIcon from '@mui/icons-material/Cancel';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import Header from '../../Header';
@@ -79,6 +82,18 @@ const BucketDetail = () => {
   const [achReady, setAchReady] = useState(false);
   const [achInfo, setAchInfo] = useState({ last4: null, bankName: null });
   const [collectReady, setCollectReady] = useState(false);
+
+  // Voting state
+  const [voting, setVoting] = useState(false);
+  const [voteError, setVoteError] = useState(null);
+
+  // Cancel state
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState(null);
+
+  // Collect confirmation
+  const [collectDialogOpen, setCollectDialogOpen] = useState(false);
 
   const fetchBucket = async () => {
     try {
@@ -258,6 +273,7 @@ const BucketDetail = () => {
 
   const handleCollect = async () => {
     try {
+      setCollectDialogOpen(false);
       setCollecting(true);
       setError(null);
       const token = await currentUser.getIdToken();
@@ -273,6 +289,70 @@ const BucketDetail = () => {
     } finally {
       setCollecting(false);
     }
+  };
+
+  const handleVote = async (approved) => {
+    try {
+      setVoting(true);
+      setVoteError(null);
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${process.env.REACT_APP_API_URL}/buckets/${id}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ approved }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to cast vote');
+      await fetchBucket();
+    } catch (err) {
+      setVoteError(err.message);
+    } finally {
+      setVoting(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    try {
+      setCancelling(true);
+      setCancelError(null);
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${process.env.REACT_APP_API_URL}/buckets/${id}/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.code === 'LOCK_PERIOD_NOT_ELAPSED') {
+          setCancelError(`Funds are locked for ${data.daysRemaining} more day(s).`);
+          setCancelDialogOpen(false);
+          return;
+        }
+        throw new Error(data.error || 'Failed to cancel bucket');
+      }
+      setCancelDialogOpen(false);
+      navigate('/dashboard');
+    } catch (err) {
+      setCancelError(err.message);
+      setCancelDialogOpen(false);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const getDaysSinceLastContrib = () => {
+    if (!bucket?.lastContributionAt) return null;
+    const ts = bucket.lastContributionAt;
+    const ms = ts.toMillis ? ts.toMillis() : new Date(ts).getTime();
+    return Math.floor((Date.now() - ms) / (24 * 60 * 60 * 1000));
+  };
+
+  const getVoteStatus = () => {
+    const votes = bucket?.collectionVotes || {};
+    const entries = Object.entries(votes);
+    const myVote = votes[currentUser.uid] ?? null;
+    const approvedCount = entries.filter(([, v]) => v.approved).length;
+    const totalVoted = entries.length;
+    return { approvedCount, totalVoted, myVote };
   };
 
   const handleDelete = async () => {
@@ -339,6 +419,15 @@ const BucketDetail = () => {
   const isOwner = bucket.userId === currentUser.uid;
   const collectorUid = bucket.collectorUid || bucket.userId;
   const isCollector = collectorUid === currentUser.uid;
+  const memberCount = (bucket.memberUids || []).length;
+  const daysSinceLastContrib = getDaysSinceLastContrib();
+  const { approvedCount, totalVoted, myVote } = getVoteStatus();
+  const hasPendingContribs = (bucket.contributions || []).some(
+    c => c.stripePaymentIntentId && c.paymentStatus === 'pending'
+  );
+  const showVoteBanner = bucket.status === 'completed' && bucket.isShared && memberCount > 1 && !bucket.collectionVoteApproved;
+  const show75DayWarning = isOwner && ['active', 'completed'].includes(bucket.status) && daysSinceLastContrib !== null && daysSinceLastContrib >= 75;
+  const show90DayWarning = show75DayWarning && daysSinceLastContrib >= 90;
 
   // Friends not already in the bucket (for invite dialog)
   const invitableFriends = friends.filter(
@@ -356,6 +445,110 @@ const BucketDetail = () => {
         {error && (
           <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 3 }}>
             {error}
+          </Alert>
+        )}
+
+        {cancelError && (
+          <Alert severity="error" onClose={() => setCancelError(null)} sx={{ mb: 3 }}>
+            {cancelError}
+          </Alert>
+        )}
+
+        {voteError && (
+          <Alert severity="error" onClose={() => setVoteError(null)} sx={{ mb: 3 }}>
+            {voteError}
+          </Alert>
+        )}
+
+        {/* Vote Banner */}
+        {showVoteBanner && (
+          <Alert
+            severity="warning"
+            icon={<GroupIcon />}
+            sx={{ mb: 3 }}
+          >
+            <Typography variant="body2" fontWeight="bold" gutterBottom>
+              Member approval required before funds can be collected
+            </Typography>
+            <Typography variant="body2">
+              {approvedCount} of {memberCount} members approved &middot; {totalVoted} have voted
+            </Typography>
+            {myVote === null ? (
+              <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  startIcon={<ThumbUpIcon />}
+                  onClick={() => handleVote(true)}
+                  disabled={voting}
+                >
+                  Approve
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  startIcon={<ThumbDownIcon />}
+                  onClick={() => handleVote(false)}
+                  disabled={voting}
+                >
+                  Decline
+                </Button>
+              </Box>
+            ) : (
+              <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Your vote: <strong>{myVote.approved ? 'Approved' : 'Declined'}</strong>
+                </Typography>
+                <Button size="small" variant="text" onClick={() => handleVote(!myVote.approved)} disabled={voting}>
+                  Change Vote
+                </Button>
+              </Box>
+            )}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              By approving, you confirm your consent for the designated collector to receive the full balance.
+            </Typography>
+          </Alert>
+        )}
+
+        {/* 90-Day Inactivity Banner */}
+        {show75DayWarning && (
+          <Alert
+            severity={show90DayWarning ? 'error' : 'warning'}
+            icon={<CancelIcon />}
+            sx={{ mb: 3 }}
+            action={
+              show90DayWarning && (
+                <Button
+                  size="small"
+                  color="inherit"
+                  variant="outlined"
+                  disabled={hasPendingContribs || cancelling}
+                  onClick={() => setCancelDialogOpen(true)}
+                >
+                  Cancel & Refund
+                </Button>
+              )
+            }
+          >
+            {show90DayWarning ? (
+              <>
+                <Typography variant="body2" fontWeight="bold">
+                  90-day inactivity window reached
+                </Typography>
+                <Typography variant="body2">
+                  No contributions in {daysSinceLastContrib} days. You may cancel this bucket and
+                  refund all settled contributors.
+                  {hasPendingContribs && ' (Unavailable while contributions are pending)'}
+                </Typography>
+              </>
+            ) : (
+              <Typography variant="body2">
+                No contributions in {daysSinceLastContrib} days. You will be able to cancel and
+                refund in {90 - daysSinceLastContrib} day(s).
+              </Typography>
+            )}
           </Alert>
         )}
 
@@ -389,6 +582,12 @@ const BucketDetail = () => {
             </Typography>
           </Box>
 
+          {bucket.status === 'completed' && bucket.isShared && memberCount > 1 && !bucket.collectionVoteApproved && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Funds are pending member approval before collection.
+            </Alert>
+          )}
+
           <Box display="flex" justifyContent="space-between" alignItems="center">
             <Typography variant="body1" color="text.secondary">
               Target Date: {formatDate(bucket.targetDate)}
@@ -400,9 +599,11 @@ const BucketDetail = () => {
                 )}
                 <Tooltip
                   title={
-                    bucket.pendingAmount > 0
-                      ? `Waiting for ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(bucket.pendingAmount || 0)} in pending contributions`
-                      : ''
+                    !bucket.collectionVoteApproved && bucket.isShared && memberCount > 1
+                      ? `Waiting for member approval: ${approvedCount} of ${memberCount} approved`
+                      : (bucket.pendingAmount || 0) > 0
+                        ? `Waiting for ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(bucket.pendingAmount || 0)} in pending contributions`
+                        : ''
                   }
                 >
                   <span>
@@ -410,8 +611,13 @@ const BucketDetail = () => {
                       variant="contained"
                       color="success"
                       size="large"
-                      onClick={handleCollect}
-                      disabled={collecting || !collectReady || (bucket.pendingAmount || 0) > 0}
+                      onClick={() => setCollectDialogOpen(true)}
+                      disabled={
+                        collecting ||
+                        !collectReady ||
+                        (bucket.pendingAmount || 0) > 0 ||
+                        (bucket.isShared && memberCount > 1 && !bucket.collectionVoteApproved)
+                      }
                       startIcon={collecting ? <CircularProgress size={20} /> : <CheckCircleIcon />}
                     >
                       {collecting ? 'Collecting...' : 'Collect Funds'}
@@ -583,6 +789,8 @@ const BucketDetail = () => {
                   statusChip = <Chip label="Payment Failed" size="small" color="error" sx={{ ml: 1 }} />;
                 } else if (contribution.paymentStatus === 'reversed') {
                   statusChip = <Chip label="Reversed" size="small" color="error" sx={{ ml: 1 }} />;
+                } else if (contribution.paymentStatus === 'refunded') {
+                  statusChip = <Chip label="Refunded" size="small" color="default" sx={{ ml: 1 }} />;
                 }
 
                 return (
@@ -732,16 +940,81 @@ const BucketDetail = () => {
               <strong>{achInfo.last4 || '****'}</strong> on today's date. This debit is governed by
               the NACHA Rules and processed via Stripe.
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Funds typically settle within 1–4 business days and will show as Pending until then.
               This authorization will remain in effect until you remove your linked bank account or
               cancel the contribution.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              AJOIN is a technology platform and is not responsible for ACH processing delays,
+              bank errors, or failed transfers. All payment processing is handled by Stripe.
             </Typography>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setConfirmDialogOpen(false)}>Cancel</Button>
             <Button variant="contained" onClick={handleConfirmAllocate}>
               Authorize
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Collect Confirmation Dialog */}
+        <Dialog open={collectDialogOpen} onClose={() => setCollectDialogOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Confirm Fund Collection</DialogTitle>
+          <DialogContent>
+            <Typography sx={{ mb: 2 }}>
+              Collect <strong>{formatCurrency(bucket.currentAmount)}</strong> from{' '}
+              <strong>{bucket.name}</strong> to your connected payout account?
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Collector: {(bucket.members || []).find(m => m.uid === collectorUid)?.displayName || 'You'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              By collecting, you confirm that all members have approved this transfer. AJOIN is a
+              technology platform and is not responsible for Stripe transfer delays or errors.
+              Payouts are governed by Stripe's terms and typically arrive within 2–7 business days.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCollectDialogOpen(false)} disabled={collecting}>Cancel</Button>
+            <Button
+              variant="contained"
+              color="success"
+              onClick={handleCollect}
+              disabled={collecting}
+              startIcon={collecting && <CircularProgress size={20} />}
+            >
+              {collecting ? 'Collecting...' : 'Confirm & Collect'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Cancel Bucket Dialog */}
+        <Dialog open={cancelDialogOpen} onClose={() => setCancelDialogOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Cancel & Refund Bucket?</DialogTitle>
+          <DialogContent>
+            <Alert severity="error" sx={{ mb: 2 }}>
+              This action is irreversible. The bucket will be permanently cancelled.
+            </Alert>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              All settled contributions will be refunded to their original payment methods.
+              Refunds are processed by Stripe and typically take 5–10 business days to appear.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              AJOIN is a technology platform and is not responsible for Stripe refund processing
+              times or bank processing delays.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCancelDialogOpen(false)} disabled={cancelling}>Keep Bucket</Button>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={handleCancel}
+              disabled={cancelling}
+              startIcon={cancelling ? <CircularProgress size={20} /> : <CancelIcon />}
+            >
+              {cancelling ? 'Cancelling...' : 'Cancel & Refund'}
             </Button>
           </DialogActions>
         </Dialog>

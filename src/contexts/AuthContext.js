@@ -9,6 +9,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
+import { TOS_VERSION } from '../constants/tos';
 
 const AuthContext = createContext({});
 
@@ -48,6 +49,7 @@ export const AuthProvider = ({ children }) => {
         connectedAccounts: [],
         totalBalance: 0,
         termsAcceptedAt: new Date(),
+        tosVersion: TOS_VERSION,
         transactionLimit: null,
         notificationPrefs: { email: true, inApp: true },
         tier: 'free',

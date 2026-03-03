@@ -24,9 +24,12 @@ router.get('/me', async (req, res) => {
 router.patch('/profile', async (req, res) => {
   try {
     const uid = req.user.uid;
-    const { displayName, transactionLimit, notificationPrefs } = req.body;
+    const { displayName, transactionLimit, notificationPrefs, tosVersion, termsAcceptedAt } = req.body;
 
     const updates = {};
+
+    if (tosVersion !== undefined) updates.tosVersion = tosVersion;
+    if (termsAcceptedAt !== undefined) updates.termsAcceptedAt = admin.firestore.FieldValue.serverTimestamp();
 
     if (displayName !== undefined) {
       if (typeof displayName !== 'string' || !displayName.trim()) {

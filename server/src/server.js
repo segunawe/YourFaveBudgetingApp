@@ -75,13 +75,20 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
             const newCurrentAmount = (bucket.currentAmount || 0) + amountDollars;
             const newPendingAmount = Math.max(0, (bucket.pendingAmount || 0) - amountDollars);
             const newStatus = newCurrentAmount >= bucket.goalAmount ? 'completed' : bucket.status;
-            await bucketRef.update({
+            const updatePayload = {
               contributions: updated,
               currentAmount: newCurrentAmount,
               pendingAmount: newPendingAmount,
               status: newStatus,
               updatedAt: admin.firestore.Timestamp.now(),
-            });
+            };
+            if (newStatus === 'completed' && bucket.status !== 'completed') {
+              const isSolo = !bucket.isShared || (bucket.memberUids || []).length <= 1;
+              updatePayload.collectionVoteInitiatedAt = admin.firestore.Timestamp.now();
+              updatePayload.collectionVotes = {};
+              updatePayload.collectionVoteApproved = isSolo;
+            }
+            await bucketRef.update(updatePayload);
           }
         }
       }
@@ -140,6 +147,32 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
             console.warn(`[Webhook] Reversal on collected bucket ${bucketDoc.id} — manual review required`);
           }
           await bucketDoc.ref.update(updatePayload);
+          break;
+        }
+      }
+    } else if (event.type === 'charge.refunded') {
+      const charge = event.data.object;
+      const piId = charge.payment_intent;
+      const amountRefundedDollars = charge.amount_refunded / 100;
+
+      const bucketsSnap = await db.collection('buckets').get();
+      for (const bucketDoc of bucketsSnap.docs) {
+        const bucket = bucketDoc.data();
+        const contributions = bucket.contributions || [];
+        const idx = contributions.findIndex(c => c.stripePaymentIntentId === piId);
+        if (idx !== -1) {
+          if (contributions[idx].paymentStatus === 'refunded') {
+            console.log(`[Webhook] charge.refunded: PI ${piId} already marked refunded in bucket ${bucketDoc.id}`);
+          } else {
+            const updated = contributions.map((c, i) =>
+              i === idx ? { ...c, paymentStatus: 'refunded', refundedAt: admin.firestore.Timestamp.now() } : c
+            );
+            await bucketDoc.ref.update({
+              contributions: updated,
+              currentAmount: Math.max(0, (bucket.currentAmount || 0) - amountRefundedDollars),
+              updatedAt: admin.firestore.Timestamp.now(),
+            });
+          }
           break;
         }
       }
@@ -233,6 +266,35 @@ app.use((req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Daily cron at 01:00 UTC: log buckets approaching/eligible for the 90-day cancellation window
+cron.schedule('0 1 * * *', async () => {
+  console.log('[Cron] Checking 90-day inactivity windows...');
+  try {
+    const SEVENTY_FIVE_DAYS_MS = 75 * 24 * 60 * 60 * 1000;
+    const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    const snapshot = await db
+      .collection('buckets')
+      .where('status', 'in', ['active', 'completed'])
+      .get();
+
+    snapshot.forEach(doc => {
+      const bucket = doc.data();
+      if (!bucket.lastContributionAt) return;
+      const elapsedMs = now - bucket.lastContributionAt.toMillis();
+      if (elapsedMs >= NINETY_DAYS_MS) {
+        console.log(`[Cron] Bucket ${doc.id} (owner: ${bucket.userId}) is eligible for cancellation (90+ days since last contribution).`);
+      } else if (elapsedMs >= SEVENTY_FIVE_DAYS_MS) {
+        const daysRemaining = Math.ceil((NINETY_DAYS_MS - elapsedMs) / (24 * 60 * 60 * 1000));
+        console.log(`[Cron] Bucket ${doc.id} (owner: ${bucket.userId}) approaching cancellation window — ${daysRemaining} day(s) remaining.`);
+      }
+    });
+  } catch (err) {
+    console.error('[Cron] 90-day inactivity check error:', err);
+  }
 });
 
 // Daily scheduler: auto-collect completed buckets whose target date has passed

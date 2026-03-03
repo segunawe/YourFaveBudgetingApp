@@ -88,7 +88,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const userId = req.user.uid;
-    const { name, goalAmount, targetDate, description, memberUids } = req.body;
+    const { name, goalAmount, targetDate, description, memberUids, approvalThreshold } = req.body;
 
     if (!name || !goalAmount) {
       return res.status(400).json({ error: 'Name and goal amount are required' });
@@ -160,6 +160,11 @@ router.post('/', async (req, res) => {
       allMemberUids = [userId, ...memberUids];
     }
 
+    const validThresholds = ['majority', 'two_thirds', 'unanimous'];
+    const resolvedThreshold = (tier === 'free' || !validThresholds.includes(approvalThreshold))
+      ? 'majority'
+      : approvalThreshold;
+
     const bucketData = {
       userId,
       name,
@@ -173,6 +178,11 @@ router.post('/', async (req, res) => {
       members,
       memberUids: allMemberUids,
       collectorUid: userId,
+      lastContributionAt: null,
+      approvalThreshold: resolvedThreshold,
+      collectionVotes: {},
+      collectionVoteApproved: false,
+      collectionVoteInitiatedAt: null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
@@ -279,6 +289,7 @@ router.post('/:id/allocate', async (req, res) => {
     await bucketRef.update({
       pendingAmount: admin.firestore.FieldValue.increment(parseFloat(amount)),
       contributions: admin.firestore.FieldValue.arrayUnion(contribution),
+      lastContributionAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -337,6 +348,17 @@ router.post('/:id/collect', async (req, res) => {
         error: 'Not all contributions have settled',
         pendingCount: pendingAch.length,
         pendingAmount: pendingTotal,
+      });
+    }
+
+    // Vote guard for shared buckets
+    const memberCount = (bucket.memberUids || []).length;
+    if (bucket.isShared && memberCount > 1 && !bucket.collectionVoteApproved) {
+      return res.status(403).json({
+        error: 'Member approval vote has not passed yet.',
+        code: 'VOTE_NOT_APPROVED',
+        approvedCount: Object.values(bucket.collectionVotes || {}).filter(v => v.approved).length,
+        memberCount,
       });
     }
 
@@ -479,15 +501,182 @@ router.patch('/:id/collector', async (req, res) => {
       return res.status(400).json({ error: 'Collector must be a current member of the bucket' });
     }
 
-    await bucketRef.update({
+    const updatePayload = {
       collectorUid,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (bucket.status === 'completed') {
+      updatePayload.collectionVotes = {};
+      updatePayload.collectionVoteApproved = false;
+      updatePayload.collectionVoteInitiatedAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    await bucketRef.update(updatePayload);
 
     res.json({ success: true, message: 'Collector updated' });
   } catch (error) {
     console.error('Error updating collector:', error);
     res.status(500).json({ error: 'Failed to update collector', details: error.message });
+  }
+});
+
+// POST /api/buckets/:id/vote
+// Cast or update a member vote on collection approval
+router.post('/:id/vote', async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { id } = req.params;
+    const { approved } = req.body;
+
+    if (typeof approved !== 'boolean') {
+      return res.status(400).json({ error: 'approved (boolean) is required' });
+    }
+
+    const bucketRef = db.collection('buckets').doc(id);
+    const bucketDoc = await bucketRef.get();
+
+    if (!bucketDoc.exists) {
+      return res.status(404).json({ error: 'Bucket not found' });
+    }
+
+    const bucket = bucketDoc.data();
+
+    if (!isMember(bucket, userId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (bucket.status !== 'completed') {
+      return res.status(400).json({ error: 'Voting is only available for completed buckets' });
+    }
+
+    const memberCount = (bucket.memberUids || []).length;
+    const newVotes = {
+      ...(bucket.collectionVotes || {}),
+      [userId]: { approved, votedAt: admin.firestore.Timestamp.now() },
+    };
+
+    const approvedCount = Object.values(newVotes).filter(v => v.approved).length;
+    const threshold = bucket.approvalThreshold || 'majority';
+
+    let collectionVoteApproved;
+    if (threshold === 'unanimous') {
+      collectionVoteApproved = approvedCount === memberCount;
+    } else if (threshold === 'two_thirds') {
+      collectionVoteApproved = approvedCount >= Math.ceil(memberCount * 2 / 3);
+    } else {
+      collectionVoteApproved = approvedCount > memberCount / 2;
+    }
+
+    await bucketRef.update({
+      collectionVotes: newVotes,
+      collectionVoteApproved,
+      updatedAt: admin.firestore.Timestamp.now(),
+    });
+
+    res.json({ success: true, approved, collectionVoteApproved, approvedCount, memberCount });
+  } catch (error) {
+    console.error('Error casting vote:', error);
+    res.status(500).json({ error: 'Failed to cast vote', details: error.message });
+  }
+});
+
+// POST /api/buckets/:id/cancel
+// Cancel a bucket and refund all settled contributors (owner only, 90-day lock)
+router.post('/:id/cancel', async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { id } = req.params;
+
+    const bucketRef = db.collection('buckets').doc(id);
+    const bucketDoc = await bucketRef.get();
+
+    if (!bucketDoc.exists) {
+      return res.status(404).json({ error: 'Bucket not found' });
+    }
+
+    const bucket = bucketDoc.data();
+
+    if (bucket.userId !== userId) {
+      return res.status(403).json({ error: 'Only the bucket owner can cancel' });
+    }
+
+    if (['cancelled', 'collected'].includes(bucket.status)) {
+      return res.status(400).json({ error: `Bucket is already ${bucket.status}` });
+    }
+
+    const contributions = bucket.contributions || [];
+
+    // Block if any ACH contributions are still pending
+    const pendingAch = contributions.filter(
+      c => c.stripePaymentIntentId && c.paymentStatus === 'pending'
+    );
+    if (pendingAch.length > 0) {
+      return res.status(400).json({
+        error: 'Cannot cancel while ACH contributions are pending settlement',
+        pendingCount: pendingAch.length,
+      });
+    }
+
+    // Enforce 90-day lock period from last contribution
+    if (bucket.lastContributionAt) {
+      const elapsedMs = Date.now() - bucket.lastContributionAt.toMillis();
+      const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+      if (elapsedMs < NINETY_DAYS_MS) {
+        const daysRemaining = Math.ceil((NINETY_DAYS_MS - elapsedMs) / (24 * 60 * 60 * 1000));
+        return res.status(403).json({
+          error: `Funds are locked for 90 days from last contribution. ${daysRemaining} day(s) remaining.`,
+          code: 'LOCK_PERIOD_NOT_ELAPSED',
+          daysRemaining,
+        });
+      }
+    }
+
+    // Refund all settled contributions
+    const succeeded = contributions.filter(
+      c => c.stripePaymentIntentId && c.paymentStatus === 'succeeded'
+    );
+
+    const updatedContributions = [...contributions];
+    const results = [];
+    let refundsInitiated = 0;
+    let refundsFailed = 0;
+
+    for (const contrib of succeeded) {
+      try {
+        const refund = await stripe.refunds.create({ payment_intent: contrib.stripePaymentIntentId });
+        const idx = updatedContributions.findIndex(
+          c => c.stripePaymentIntentId === contrib.stripePaymentIntentId
+        );
+        if (idx !== -1) {
+          updatedContributions[idx] = {
+            ...updatedContributions[idx],
+            paymentStatus: 'refunded',
+            stripeRefundId: refund.id,
+            refundedAt: admin.firestore.Timestamp.now(),
+          };
+        }
+        results.push({ piId: contrib.stripePaymentIntentId, refundId: refund.id, status: 'refunded' });
+        refundsInitiated++;
+      } catch (refundErr) {
+        console.error(`Failed to refund PI ${contrib.stripePaymentIntentId}:`, refundErr.message);
+        results.push({ piId: contrib.stripePaymentIntentId, status: 'failed', error: refundErr.message });
+        refundsFailed++;
+      }
+    }
+
+    await bucketRef.update({
+      status: 'cancelled',
+      cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+      currentAmount: 0,
+      contributions: updatedContributions,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.json({ success: true, refundsInitiated, refundsFailed, results });
+  } catch (error) {
+    console.error('Error cancelling bucket:', error);
+    res.status(500).json({ error: 'Failed to cancel bucket', details: error.message });
   }
 });
 
