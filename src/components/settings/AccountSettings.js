@@ -366,9 +366,6 @@ const AccountSettings = () => {
 
         {/* Notifications */}
         <Section title="Notification Preferences">
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Notification delivery will be available in a future update.
-          </Typography>
           <Box display="flex" flexDirection="column" gap={1} mb={2}>
             <FormControlLabel
               control={<Switch checked={notifEmail} onChange={(e) => setNotifEmail(e.target.checked)} />}

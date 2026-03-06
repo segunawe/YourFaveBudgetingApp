@@ -2,33 +2,25 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../config/firebase');
 const admin = require('firebase-admin');
-const nodemailer = require('nodemailer');
+const { sendMail } = require('../utils/mailer');
 
-const mailer = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-});
-
-const sendSupportNotification = async ({ bucketName, bucketId, userEmail, amountStuck, message }) => {
+const sendSupportNotification = ({ bucketName, bucketId, userEmail, amountStuck, message }) => {
   if (!process.env.GMAIL_USER || !process.env.SUPPORT_NOTIFY_EMAIL) return;
-  await mailer.sendMail({
-    from: `"YourFaveBudgetingApp" <${process.env.GMAIL_USER}>`,
-    to: process.env.SUPPORT_NOTIFY_EMAIL,
-    subject: `Support Request: Stuck Funds — ${bucketName}`,
-    text: [
-      `A user has submitted a funds release request.`,
-      ``,
-      `User:       ${userEmail}`,
-      `Bucket:     ${bucketName} (ID: ${bucketId})`,
-      `Amount:     $${amountStuck.toFixed(2)}`,
-      ``,
-      `Message:`,
-      message,
-    ].join('\n'),
-  });
+  const body = [
+    'A user has submitted a funds release request.',
+    '',
+    `User:       ${userEmail}`,
+    `Bucket:     ${bucketName} (ID: ${bucketId})`,
+    `Amount:     $${amountStuck.toFixed(2)}`,
+    '',
+    'Message:',
+    message,
+  ].join('\n');
+  sendMail(
+    process.env.SUPPORT_NOTIFY_EMAIL,
+    `Support Request: Stuck Funds — ${bucketName}`,
+    `<pre style="font-family:monospace;font-size:14px;">${body}</pre>`
+  );
 };
 
 // POST /api/support/stuck-funds
@@ -85,14 +77,13 @@ router.post('/stuck-funds', async (req, res) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Fire-and-forget email — don't block the response if mail fails
     sendSupportNotification({
       bucketName: bucket.name,
       bucketId,
       userEmail: req.user.email,
       amountStuck: userContributions,
       message: message.trim(),
-    }).catch(err => console.error('Support email failed:', err));
+    });
 
     res.status(201).json({ id: requestRef.id, message: 'Support request submitted' });
   } catch (error) {

@@ -6,6 +6,8 @@ const morgan = require('morgan');
 const cron = require('node-cron');
 const { db } = require('./config/firebase');
 const admin = require('firebase-admin');
+const { createNotification, notifyByEmail } = require('./utils/notifications');
+const { contributionFailedEmail, goalReachedEmail, voteNeededEmail } = require('./utils/mailer');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -87,6 +89,31 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
               updatePayload.collectionVoteInitiatedAt = admin.firestore.Timestamp.now();
               updatePayload.collectionVotes = {};
               updatePayload.collectionVoteApproved = isSolo;
+
+              // Notify all members + owner that the goal was reached
+              const allUids = [...new Set([bucket.userId, ...(bucket.memberUids || [])])].filter(Boolean);
+              for (const memberUid of allUids) {
+                createNotification(memberUid, {
+                  type: 'goal_reached',
+                  title: 'Savings Goal Reached!',
+                  body: `"${bucket.name}" has reached its goal of $${bucket.goalAmount.toFixed(2)}.`,
+                  link: `/buckets/${bucketId}`,
+                });
+                notifyByEmail(memberUid, `Goal Reached: ${bucket.name}`, goalReachedEmail({ bucketName: bucket.name, goalAmount: bucket.goalAmount }));
+              }
+
+              // If shared, also send vote_needed
+              if (!isSolo) {
+                for (const memberUid of allUids) {
+                  createNotification(memberUid, {
+                    type: 'vote_needed',
+                    title: 'Vote to Collect Funds',
+                    body: `"${bucket.name}" needs your vote to approve the payout.`,
+                    link: `/buckets/${bucketId}`,
+                  });
+                  notifyByEmail(memberUid, `Action Required: Vote to collect "${bucket.name}"`, voteNeededEmail({ bucketName: bucket.name }));
+                }
+              }
             }
             await bucketRef.update(updatePayload);
           }
@@ -107,6 +134,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
           const contributions = bucket.contributions || [];
           const idx = contributions.findIndex(c => c.stripePaymentIntentId === piId);
           if (idx !== -1 && contributions[idx].paymentStatus === 'pending') {
+            const failedContribution = contributions[idx];
             const updated = contributions.map((c, i) =>
               i === idx ? { ...c, paymentStatus: 'failed', failureReason: declineCode } : c
             );
@@ -115,6 +143,17 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
               pendingAmount: Math.max(0, (bucket.pendingAmount || 0) - amountDollars),
               updatedAt: admin.firestore.Timestamp.now(),
             });
+
+            const contributorUid = failedContribution.uid || bucket.userId;
+            if (contributorUid) {
+              createNotification(contributorUid, {
+                type: 'contribution_failed',
+                title: 'Payment Failed',
+                body: `Your $${amountDollars.toFixed(2)} contribution to "${bucket.name}" could not be processed.`,
+                link: `/buckets/${bucketId}`,
+              });
+              notifyByEmail(contributorUid, `Payment Failed: ${bucket.name}`, contributionFailedEmail({ bucketName: bucket.name, amount: amountDollars, reason: declineCode }));
+            }
           }
         }
       }

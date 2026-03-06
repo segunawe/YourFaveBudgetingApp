@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../config/firebase');
 const admin = require('firebase-admin');
+const { createNotification, notifyByEmail } = require('../utils/notifications');
+const { friendRequestEmail, friendAcceptedEmail } = require('../utils/mailer');
 
 // POST /api/friends/request
 // Send a friend request by email
@@ -14,14 +16,16 @@ router.post('/request', async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    if (email === req.user.email) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (normalizedEmail === req.user.email.toLowerCase()) {
       return res.status(400).json({ error: 'You cannot add yourself as a friend' });
     }
 
     // Look up target user by email
     const usersSnapshot = await db
       .collection('users')
-      .where('email', '==', email)
+      .where('email', '==', normalizedEmail)
       .limit(1)
       .get();
 
@@ -63,6 +67,15 @@ router.post('/request', async (req, res) => {
       status: 'pending',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    const fromName = fromUser.displayName || req.user.email;
+    createNotification(toUid, {
+      type: 'friend_request',
+      title: 'New Friend Request',
+      body: `${fromName} sent you a friend request.`,
+      link: '/dashboard',
+    });
+    notifyByEmail(toUid, 'New Friend Request on AJOIN', friendRequestEmail({ fromName }));
 
     res.status(201).json({ id: requestRef.id, message: 'Friend request sent' });
   } catch (error) {
@@ -131,6 +144,17 @@ router.post('/requests/:id/accept', async (req, res) => {
       friends: admin.firestore.FieldValue.arrayUnion(uid),
     });
     await batch.commit();
+
+    // Look up accepting user's name to send to the original requester
+    const acceptorDoc = await db.collection('users').doc(uid).get();
+    const acceptorName = acceptorDoc.data()?.displayName || request.toEmail || 'Someone';
+    createNotification(request.fromUid, {
+      type: 'friend_accepted',
+      title: 'Friend Request Accepted',
+      body: `${acceptorName} accepted your friend request.`,
+      link: '/dashboard',
+    });
+    notifyByEmail(request.fromUid, 'Friend Request Accepted on AJOIN', friendAcceptedEmail({ fromName: acceptorName }));
 
     res.json({ success: true, message: 'Friend request accepted' });
   } catch (error) {
