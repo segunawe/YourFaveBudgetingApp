@@ -19,9 +19,11 @@ import {
   Divider,
   Tooltip,
   FormControl,
+  FormControlLabel,
   InputLabel,
   Select,
   MenuItem,
+  Switch,
 } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import UpgradeDialog from '../subscription/UpgradeDialog';
@@ -37,6 +39,7 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
   const [error, setError] = useState(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [approvalThreshold, setApprovalThreshold] = useState('majority');
+  const [flexibleContributions, setFlexibleContributions] = useState(false);
   const { currentUser } = useAuth();
 
   const tier = currentUser?.firestoreData?.tier || 'free';
@@ -104,6 +107,7 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
           description: formData.description.trim(),
           memberUids: selectedFriendUids,
           approvalThreshold,
+          flexibleContributions,
         }),
       });
 
@@ -121,6 +125,7 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
       setFormData({ name: '', goalAmount: '', targetDate: '', description: '' });
       setSelectedFriendUids([]);
       setApprovalThreshold('majority');
+      setFlexibleContributions(false);
 
       if (onSuccess) onSuccess(data);
       onClose();
@@ -137,6 +142,7 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
       setFormData({ name: '', goalAmount: '', targetDate: '', description: '' });
       setSelectedFriendUids([]);
       setApprovalThreshold('majority');
+      setFlexibleContributions(false);
       setError(null);
       onClose();
     }
@@ -284,6 +290,25 @@ const CreateBucket = ({ open, onClose, onSuccess }) => {
                       When the goal is reached, members must vote to approve the collector before
                       funds can be released.
                     </Typography>
+                    {tier === 'plus' && (
+                      <>
+                        <Divider />
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={flexibleContributions}
+                              onChange={(e) => setFlexibleContributions(e.target.checked)}
+                              disabled={loading}
+                            />
+                          }
+                          label="Allow flexible contribution amounts"
+                        />
+                        <Typography variant="caption" color="text.secondary">
+                          By default, each member pays an equal share of the goal. Enable this to
+                          let members contribute any amount.
+                        </Typography>
+                      </>
+                    )}
                   </>
                 )}
               </>

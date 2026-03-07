@@ -22,7 +22,9 @@ import {
   MenuItem,
   Select,
   FormControl,
+  FormControlLabel,
   InputLabel,
+  Switch,
   Tooltip,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -94,6 +96,9 @@ const BucketDetail = () => {
 
   // Collect confirmation
   const [collectDialogOpen, setCollectDialogOpen] = useState(false);
+
+  // Flexible contributions toggle
+  const [flexToggling, setFlexToggling] = useState(false);
 
   const fetchBucket = async () => {
     try {
@@ -375,6 +380,25 @@ const BucketDetail = () => {
     }
   };
 
+  const handleFlexibleToggle = async (value) => {
+    try {
+      setFlexToggling(true);
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${process.env.REACT_APP_API_URL}/buckets/${id}/flexible-contributions`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ flexibleContributions: value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update setting');
+      setBucket(prev => ({ ...prev, flexibleContributions: value }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setFlexToggling(false);
+    }
+  };
+
   const formatCurrency = (amount) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 
@@ -428,6 +452,23 @@ const BucketDetail = () => {
   const showVoteBanner = bucket.status === 'completed' && bucket.isShared && memberCount > 1 && !bucket.collectionVoteApproved;
   const show75DayWarning = isOwner && ['active', 'completed'].includes(bucket.status) && daysSinceLastContrib !== null && daysSinceLastContrib >= 75;
   const show90DayWarning = show75DayWarning && daysSinceLastContrib >= 90;
+
+  // Equal-share computation for shared buckets without flexible contributions
+  const isPlus = currentUser.firestoreData?.tier === 'plus';
+  const showShareEnforcement = bucket.isShared && !bucket.flexibleContributions;
+  const equalShare = showShareEnforcement
+    ? Math.ceil((bucket.goalAmount / memberCount) * 100) / 100
+    : null;
+  const myCommitted = showShareEnforcement
+    ? (bucket.contributions || [])
+        .filter(c => c.uid === currentUser.uid &&
+          c.paymentStatus !== 'failed' &&
+          c.paymentStatus !== 'reversed' &&
+          c.paymentStatus !== 'refunded')
+        .reduce((sum, c) => sum + (c.amount || 0), 0)
+    : 0;
+  const myRemaining = showShareEnforcement ? Math.max(0, equalShare - myCommitted) : null;
+  const shareMet = showShareEnforcement && myRemaining === 0;
 
   // Friends not already in the bucket (for invite dialog)
   const invitableFriends = friends.filter(
@@ -649,36 +690,49 @@ const BucketDetail = () => {
               </Typography>
             )}
 
-            <form onSubmit={handleAllocate}>
-              <Box display="flex" gap={2} sx={{ flexDirection: { xs: 'column', sm: 'row' } }}>
-                <Tooltip title="Amount to debit via ACH from your linked bank account" placement="top">
-                  <TextField
-                    label="Amount"
-                    type="number"
-                    value={allocateAmount}
-                    onChange={(e) => setAllocateAmount(e.target.value)}
-                    inputProps={{ min: 0, step: 0.01 }}
-                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                    placeholder="0.00"
-                    disabled={allocating || !achReady}
-                    fullWidth
-                  />
-                </Tooltip>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  disabled={allocating || !allocateAmount || !achReady}
-                  startIcon={allocating ? <CircularProgress size={20} /> : <AddIcon />}
-                  sx={{
-                    minWidth: { xs: 'unset', sm: 150 },
-                    width: { xs: '100%', sm: 'auto' },
-                    height: 56,
-                  }}
-                >
-                  {allocating ? 'Adding...' : 'Add Funds'}
-                </Button>
-              </Box>
-            </form>
+            {shareMet ? (
+              <Chip
+                icon={<CheckCircleIcon />}
+                label={`You've contributed your full share (${formatCurrency(equalShare)})`}
+                color="success"
+                variant="outlined"
+                sx={{ mb: 1 }}
+              />
+            ) : (
+              <form onSubmit={handleAllocate}>
+                <Box display="flex" gap={2} sx={{ flexDirection: { xs: 'column', sm: 'row' } }}>
+                  <Tooltip title="Amount to debit via ACH from your linked bank account" placement="top">
+                    <TextField
+                      label="Amount"
+                      type="number"
+                      value={allocateAmount}
+                      onChange={(e) => setAllocateAmount(e.target.value)}
+                      inputProps={{ min: 0, step: 0.01, ...(showShareEnforcement ? { max: myRemaining } : {}) }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                      placeholder="0.00"
+                      disabled={allocating || !achReady}
+                      fullWidth
+                      helperText={showShareEnforcement
+                        ? `Your share: ${formatCurrency(equalShare)} | Contributed: ${formatCurrency(myCommitted)} | Remaining: ${formatCurrency(myRemaining)}`
+                        : undefined}
+                    />
+                  </Tooltip>
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    disabled={allocating || !allocateAmount || !achReady}
+                    startIcon={allocating ? <CircularProgress size={20} /> : <AddIcon />}
+                    sx={{
+                      minWidth: { xs: 'unset', sm: 150 },
+                      width: { xs: '100%', sm: 'auto' },
+                      height: 56,
+                    }}
+                  >
+                    {allocating ? 'Adding...' : 'Add Funds'}
+                  </Button>
+                </Box>
+              </form>
+            )}
 
             {/* Stuck funds */}
             {(() => {
@@ -767,6 +821,27 @@ const BucketDetail = () => {
             })}
           </List>
         </Paper>
+
+        {/* Flexible Contributions Toggle — Plus owner only */}
+        {isOwner && isPlus && bucket.isShared && (
+          <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={!!bucket.flexibleContributions}
+                  onChange={(e) => handleFlexibleToggle(e.target.checked)}
+                  disabled={flexToggling}
+                />
+              }
+              label="Allow flexible contribution amounts"
+            />
+            <Typography variant="caption" color="text.secondary" display="block">
+              {bucket.flexibleContributions
+                ? 'Members can contribute any amount. Equal-share enforcement is disabled.'
+                : `Each member's equal share is ${formatCurrency(equalShare || Math.ceil((bucket.goalAmount / memberCount) * 100) / 100)}. Enable to remove this limit.`}
+            </Typography>
+          </Paper>
+        )}
 
         {/* Contribution History */}
         <Paper elevation={3} sx={{ p: 4, mb: 3 }}>

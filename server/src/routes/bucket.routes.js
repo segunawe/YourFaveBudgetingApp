@@ -88,7 +88,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const userId = req.user.uid;
-    const { name, goalAmount, targetDate, description, memberUids, approvalThreshold } = req.body;
+    const { name, goalAmount, targetDate, description, memberUids, approvalThreshold, flexibleContributions } = req.body;
 
     if (!name || !goalAmount) {
       return res.status(400).json({ error: 'Name and goal amount are required' });
@@ -183,6 +183,7 @@ router.post('/', async (req, res) => {
       collectionVotes: {},
       collectionVoteApproved: false,
       collectionVoteInitiatedAt: null,
+      flexibleContributions: flexibleContributions === true && tier === 'plus',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
@@ -231,6 +232,34 @@ router.post('/:id/allocate', async (req, res) => {
 
     if (bucket.status === 'completed') {
       return res.status(400).json({ error: 'Cannot allocate to a completed bucket' });
+    }
+
+    // Enforce equal share for shared buckets without flexible contributions
+    if (!bucket.flexibleContributions && bucket.isShared) {
+      const memberCount = (bucket.memberUids || []).length;
+      const equalShare = Math.ceil((bucket.goalAmount / memberCount) * 100) / 100;
+      const alreadyCommitted = (bucket.contributions || [])
+        .filter(c => c.uid === userId &&
+          c.paymentStatus !== 'failed' &&
+          c.paymentStatus !== 'reversed' &&
+          c.paymentStatus !== 'refunded')
+        .reduce((sum, c) => sum + (c.amount || 0), 0);
+      const remaining = Math.max(0, equalShare - alreadyCommitted);
+      if (alreadyCommitted >= equalShare) {
+        return res.status(400).json({
+          error: `You have already reached your share of $${equalShare.toFixed(2)} for this bucket.`,
+          code: 'SHARE_LIMIT_REACHED',
+          equalShare,
+        });
+      }
+      if (parseFloat(amount) > remaining) {
+        return res.status(400).json({
+          error: `Amount exceeds your remaining share. You can contribute up to $${remaining.toFixed(2)} more.`,
+          code: 'SHARE_LIMIT_EXCEEDED',
+          equalShare,
+          remaining,
+        });
+      }
     }
 
     // Get contributing user's bank balance and settings
@@ -677,6 +706,54 @@ router.post('/:id/cancel', async (req, res) => {
   } catch (error) {
     console.error('Error cancelling bucket:', error);
     res.status(500).json({ error: 'Failed to cancel bucket', details: error.message });
+  }
+});
+
+// PATCH /api/buckets/:id/flexible-contributions
+// Toggle flexible contributions (owner only; enabling requires Plus tier)
+router.patch('/:id/flexible-contributions', async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { id } = req.params;
+    const { flexibleContributions } = req.body;
+
+    if (typeof flexibleContributions !== 'boolean') {
+      return res.status(400).json({ error: 'flexibleContributions (boolean) is required' });
+    }
+
+    const bucketRef = db.collection('buckets').doc(id);
+    const bucketDoc = await bucketRef.get();
+
+    if (!bucketDoc.exists) {
+      return res.status(404).json({ error: 'Bucket not found' });
+    }
+
+    const bucket = bucketDoc.data();
+
+    if (bucket.userId !== userId) {
+      return res.status(403).json({ error: 'Only the bucket owner can change this setting' });
+    }
+
+    if (flexibleContributions) {
+      const userDoc = await db.collection('users').doc(userId).get();
+      const tier = userDoc.data()?.tier || 'free';
+      if (tier !== 'plus') {
+        return res.status(403).json({
+          error: 'Flexible contributions require AJOIN Plus.',
+          code: 'TIER_LIMIT_REACHED',
+        });
+      }
+    }
+
+    await bucketRef.update({
+      flexibleContributions,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.json({ success: true, flexibleContributions });
+  } catch (error) {
+    console.error('Error updating flexible contributions:', error);
+    res.status(500).json({ error: 'Failed to update setting', details: error.message });
   }
 });
 
