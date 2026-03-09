@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -25,23 +25,24 @@ export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Prevents onAuthStateChanged from racing with signup's own Firestore write
+  const signingUpRef = useRef(false);
 
   // Sign up with email and password
   const signup = async (email, password, displayName) => {
+    let user = null;
     try {
       setError(null);
+      signingUpRef.current = true;
 
-      // Create user account
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      user = userCredential.user;
 
-      // Update profile with display name
       if (displayName) {
         await updateProfile(user, { displayName });
       }
 
-      // Create user document in Firestore
-      await setDoc(doc(db, 'users', user.uid), {
+      const firestoreData = {
         uid: user.uid,
         email: user.email,
         displayName: displayName || '',
@@ -55,10 +56,23 @@ export const AuthProvider = ({ children }) => {
         tier: 'free',
         stripeCustomerId: null,
         stripeSubscriptionId: null,
-      });
+      };
+
+      await setDoc(doc(db, 'users', user.uid), firestoreData);
+
+      // Attach firestoreData before handing off to the rest of the app
+      user.firestoreData = firestoreData;
+      signingUpRef.current = false;
+      setCurrentUser(user);
 
       return user;
     } catch (err) {
+      signingUpRef.current = false;
+      // If the Auth user was created but the Firestore write failed, delete the
+      // Auth user so the email isn't permanently locked out of signing up again.
+      if (user) {
+        try { await deleteUser(user); } catch (_) {}
+      }
       setError(err.message);
       throw err;
     }
@@ -144,15 +158,15 @@ export const AuthProvider = ({ children }) => {
   // Listen to auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      // signup() manages its own state to avoid a race where this handler
+      // fires before the Firestore doc has been written.
+      if (signingUpRef.current) return;
       setLoading(true);
       if (user) {
-        // User is signed in - keep the Firebase user object intact
         const userData = await getUserData(user.uid);
-        // Attach Firestore data as a property instead of spreading
         user.firestoreData = userData;
         setCurrentUser(user);
       } else {
-        // User is signed out
         setCurrentUser(null);
       }
       setLoading(false);
