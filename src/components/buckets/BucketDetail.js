@@ -38,6 +38,7 @@ import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import ThumbDownIcon from '@mui/icons-material/ThumbDown';
 import CancelIcon from '@mui/icons-material/Cancel';
+import AutorenewIcon from '@mui/icons-material/Autorenew';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import Header from '../../Header';
@@ -100,6 +101,14 @@ const BucketDetail = () => {
   // Flexible contributions toggle
   const [flexToggling, setFlexToggling] = useState(false);
 
+  // Recurring contributions
+  const [recurringSchedule, setRecurringSchedule] = useState(null);
+  const [recurringDialogOpen, setRecurringDialogOpen] = useState(false);
+  const [recurringAmount, setRecurringAmount] = useState('');
+  const [recurringFrequency, setRecurringFrequency] = useState('weekly');
+  const [savingRecurring, setSavingRecurring] = useState(false);
+  const [confirmCancelRecurring, setConfirmCancelRecurring] = useState(false);
+
   const fetchBucket = async () => {
     try {
       setLoading(true);
@@ -149,10 +158,26 @@ const BucketDetail = () => {
     }
   };
 
+  const fetchRecurringSchedule = async () => {
+    try {
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${process.env.REACT_APP_API_URL}/recurring`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setRecurringSchedule((data.schedules || []).find(s => s.bucketId === id) || null);
+      }
+    } catch (err) {
+      console.error('Error fetching recurring schedule:', err);
+    }
+  };
+
   useEffect(() => {
     fetchBucket();
     fetchStuckRequests();
     fetchAchStatus();
+    fetchRecurringSchedule();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -396,6 +421,70 @@ const BucketDetail = () => {
       setError(err.message);
     } finally {
       setFlexToggling(false);
+    }
+  };
+
+  const handleSetupRecurring = async () => {
+    try {
+      setSavingRecurring(true);
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${process.env.REACT_APP_API_URL}/recurring`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ bucketId: id, amount: parseFloat(recurringAmount), frequency: recurringFrequency }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to set up recurring contribution');
+      setRecurringSchedule(data);
+      setRecurringDialogOpen(false);
+      setRecurringAmount('');
+    } catch (err) {
+      setError(err.message);
+      setRecurringDialogOpen(false);
+    } finally {
+      setSavingRecurring(false);
+    }
+  };
+
+  const handleToggleRecurring = async () => {
+    if (!recurringSchedule) return;
+    try {
+      setSavingRecurring(true);
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${process.env.REACT_APP_API_URL}/recurring/${recurringSchedule.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ active: !recurringSchedule.active }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update recurring schedule');
+      setRecurringSchedule(prev => ({ ...prev, active: !prev.active }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingRecurring(false);
+    }
+  };
+
+  const handleCancelRecurring = async () => {
+    if (!recurringSchedule) return;
+    try {
+      setSavingRecurring(true);
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${process.env.REACT_APP_API_URL}/recurring/${recurringSchedule.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to cancel recurring schedule');
+      }
+      setRecurringSchedule(null);
+      setConfirmCancelRecurring(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingRecurring(false);
     }
   };
 
@@ -763,6 +852,58 @@ const BucketDetail = () => {
                 </Box>
               );
             })()}
+
+            {/* Recurring Contributions */}
+            {achReady && (
+              <>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle2" gutterBottom>Recurring Contributions</Typography>
+                {recurringSchedule ? (
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">
+                      Auto-contributing <strong>{formatCurrency(recurringSchedule.amount)}</strong>{' '}
+                      {recurringSchedule.frequency === 'biweekly' ? 'every 2 weeks' : recurringSchedule.frequency}
+                      {recurringSchedule.nextRunAt && (
+                        <> &middot; Next: {new Date(recurringSchedule.nextRunAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
+                      )}
+                      {!recurringSchedule.active && <> &middot; <span style={{ color: '#ed6c02' }}>Paused</span></>}
+                    </Typography>
+                    <Box sx={{ mt: 1, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={handleToggleRecurring}
+                        disabled={savingRecurring}
+                      >
+                        {recurringSchedule.active ? 'Pause' : 'Resume'}
+                      </Button>
+                      {confirmCancelRecurring ? (
+                        <>
+                          <Typography variant="body2" color="error">Cancel recurring?</Typography>
+                          <Button size="small" color="error" variant="contained" onClick={handleCancelRecurring} disabled={savingRecurring}>
+                            Yes, cancel
+                          </Button>
+                          <Button size="small" onClick={() => setConfirmCancelRecurring(false)}>No</Button>
+                        </>
+                      ) : (
+                        <Button size="small" color="error" variant="text" onClick={() => setConfirmCancelRecurring(true)}>
+                          Cancel recurring
+                        </Button>
+                      )}
+                    </Box>
+                  </Box>
+                ) : (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AutorenewIcon />}
+                    onClick={() => setRecurringDialogOpen(true)}
+                  >
+                    Set up recurring contribution
+                  </Button>
+                )}
+              </>
+            )}
           </Paper>
         )}
 
@@ -1090,6 +1231,59 @@ const BucketDetail = () => {
               startIcon={cancelling ? <CircularProgress size={20} /> : <CancelIcon />}
             >
               {cancelling ? 'Cancelling...' : 'Cancel & Refund'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Recurring Setup Dialog */}
+        <Dialog open={recurringDialogOpen} onClose={() => { setRecurringDialogOpen(false); setRecurringAmount(''); }} maxWidth="xs" fullWidth>
+          <DialogTitle>Set Up Recurring Contribution</DialogTitle>
+          <DialogContent>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+              <TextField
+                label="Amount per occurrence"
+                type="number"
+                value={recurringAmount}
+                onChange={(e) => setRecurringAmount(e.target.value)}
+                inputProps={{ min: 0.01, step: 0.01, ...(showShareEnforcement && myRemaining !== null ? { max: myRemaining } : {}) }}
+                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                fullWidth
+                helperText={showShareEnforcement && myRemaining !== null ? `Max per occurrence: ${formatCurrency(myRemaining)}` : undefined}
+              />
+              <FormControl fullWidth>
+                <InputLabel>Frequency</InputLabel>
+                <Select
+                  value={recurringFrequency}
+                  label="Frequency"
+                  onChange={(e) => setRecurringFrequency(e.target.value)}
+                >
+                  <MenuItem value="weekly">Weekly</MenuItem>
+                  <MenuItem value="biweekly">Every 2 Weeks</MenuItem>
+                  <MenuItem value="monthly">Monthly</MenuItem>
+                </Select>
+              </FormControl>
+              <Alert severity="info">
+                <Typography variant="caption" component="div">
+                  By clicking <strong>Authorize Recurring Debits</strong>, you authorize AJOIN to
+                  electronically debit the above amount from your{' '}
+                  {achInfo.bankName ? <strong>{achInfo.bankName}</strong> : 'bank'} account ending
+                  in <strong>{achInfo.last4 || '****'}</strong> on a recurring{' '}
+                  {recurringFrequency === 'biweekly' ? 'biweekly' : recurringFrequency} basis until
+                  you cancel. This standing authorization is governed by the NACHA Rules and
+                  processed via Stripe. You may cancel at any time from this page.
+                </Typography>
+              </Alert>
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => { setRecurringDialogOpen(false); setRecurringAmount(''); }}>Cancel</Button>
+            <Button
+              variant="contained"
+              onClick={handleSetupRecurring}
+              disabled={savingRecurring || !recurringAmount || parseFloat(recurringAmount) <= 0}
+              startIcon={savingRecurring ? <CircularProgress size={20} /> : <AutorenewIcon />}
+            >
+              {savingRecurring ? 'Setting up...' : 'Authorize Recurring Debits'}
             </Button>
           </DialogActions>
         </Dialog>
